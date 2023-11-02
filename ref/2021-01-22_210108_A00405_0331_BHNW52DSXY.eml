@@ -1,0 +1,1349 @@
+From: "Sheridan, Ryan" <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+To: "Lucas, Cormac" <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+Thread-Topic: 210108_A00405_0331_BHNW52DSXY
+Thread-Index:
+	AQHW6rGxjtyg5b+lP0y7OZ3slI9nT6ovKT9A//+oIYCAAHiWaoAAAhXQgAABSEuAAB3rpIAAU3+ZgAD92FGAAAsHuoADkNoCgAAJGraAAAEqFg==
+Date: Sat, 23 Jan 2021 00:10:06 +0000
+Message-ID:
+	<DM5PR05MB29238034BB6E42A0D491F9809EBF9@DM5PR05MB2923.namprd05.prod.outlook.com>
+References:
+	<CY4PR05MB32699DA861405657A83D74AF9AFC0@CY4PR05MB3269.namprd05.prod.outlook.com>
+ <CY4PR05MB326957E08927F30F0839AAEA9AC00@CY4PR05MB3269.namprd05.prod.outlook.com>
+ <CY4PR05MB326950B139284B8CA3E0155D9AD10@CY4PR05MB3269.namprd05.prod.outlook.com>
+ <CY4PR05MB3269503B92341187FCF4CD709AD10@CY4PR05MB3269.namprd05.prod.outlook.com>
+ <CY4PR05MB3269E2D4967B5C7A762D43D49AD10@CY4PR05MB3269.namprd05.prod.outlook.com>
+ <CY4PR05MB32697BCD486E6DD4D6252BFB9AD10@CY4PR05MB3269.namprd05.prod.outlook.com>
+ <CY4PR05MB3269200B9A23EE47320C10369AA89@CY4PR05MB3269.namprd05.prod.outlook.com>
+ <CY4PR05MB3269AE1908D8468E367ADD769AA39@CY4PR05MB3269.namprd05.prod.outlook.com>,<CE896B91-4B3F-4AF3-88A9-6DD0814D6C0D@cuanschutz.edu>
+ <DM5PR05MB29239EC457860F1BFFCA98359EA39@DM5PR05MB2923.namprd05.prod.outlook.com>,<CY4PR05MB32694E057F9CC2B2AEC637519AA39@CY4PR05MB3269.namprd05.prod.outlook.com>,<DM5PR05MB2923D132421042B0C34D928E9EA39@DM5PR05MB2923.namprd05.prod.outlook.com>,<CY4PR05MB3415A8F77B183093331C683BEDA39@CY4PR05MB3415.namprd05.prod.outlook.com>,<DM5PR05MB292373F4371D109D91EE6BAC9EA29@DM5PR05MB2923.namprd05.prod.outlook.com>,<CY4PR05MB341522F919C2BD9BB7B83E9AEDA29@CY4PR05MB3415.namprd05.prod.outlook.com>,<DM5PR05MB2923BCAF7DD0C25B741F0C4A9EA29@DM5PR05MB2923.namprd05.prod.outlook.com>,<DM5PR05MB2923D645B9C0C244A139520C9EA09@DM5PR05MB2923.namprd05.prod.outlook.com>,<CY4PR05MB34159A8E3E1D3CA94A3B6CAFEDBF9@CY4PR05MB3415.namprd05.prod.outlook.com>
+In-Reply-To:
+	<CY4PR05MB34159A8E3E1D3CA94A3B6CAFEDBF9@CY4PR05MB3415.namprd05.prod.outlook.com>
+Content-Language: en-US
+X-MS-Has-Attach:
+X-MS-Exchange-Organization-SCL: -1
+X-MS-TNEF-Correlator:
+X-MS-Exchange-Organization-RecordReviewCfmType: 0
+Content-Type: multipart/alternative;
+	boundary="_000_DM5PR05MB29238034BB6E42A0D491F9809EBF9DM5PR05MB2923namp_"
+MIME-Version: 1.0
+
+--_000_DM5PR05MB29238034BB6E42A0D491F9809EBF9DM5PR05MB2923namp_
+Content-Type: text/plain; charset="Windows-1252"
+Content-Transfer-Encoding: quoted-printable
+
+Great thanks
+Ryan
+
+
+
+
+Ryan Sheridan, PhD
+
+Informatics Fellow
+
+RNA Bioscience Initiative
+
+Dept. of Biochemistry & Molecular Genetics
+
+University of Colorado School of Medicine
+
+________________________________
+From: Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Sent: Friday, January 22, 2021 5:07 PM
+To: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+
+
+Hi Ryan,
+
+
+
+I believe that is correct. The ORF of the sgRNA is shifted somewhat from th=
+e 5=92 half of the genome but there is a junction of about ~50-80 untransla=
+ted nucleotides between the 5=92 half and the sgRNA so I think you can star=
+t the sgRNA at the entry labeled CAPSID and go from there.
+
+
+
+Cormac
+
+
+
+From: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+Date: Friday, January 22, 2021 at 5:01 PM
+To: Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+
+Hi Cormac,
+
+
+
+I'm thinking that for the cellranger reference we could try splitting the C=
+HIKV sequence into a 5' half and 3' half. So the sgRNA would be handled as =
+a separate "gene" in the reference. We could then try to identify cells wit=
+h more sgRNA signal relative to 5' signal. I know the sgRNA should be the 3=
+' portion of the sequence, but I wasn't sure exactly where it started. From=
+ the gff file that Tem sent, it seems that the sgRNA should start at base 7=
+567 (gff entry labeled "CAPSID"), is this correct?
+
+
+
+Ryan
+
+
+
+
+
+
+
+Ryan Sheridan, PhD
+
+Informatics Fellow
+
+RNA Bioscience Initiative
+
+Dept. of Biochemistry & Molecular Genetics
+
+University of Colorado School of Medicine
+
+________________________________
+
+From: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+Sent: Wednesday, January 20, 2021 10:06 AM
+To: Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+
+
+
+Great, sounds good
+
+
+
+Ryan
+
+
+
+Get Outlook for iOS<https://aka.ms/o0ukef>
+
+________________________________
+
+From: Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Sent: Wednesday, January 20, 2021 9:30:26 AM
+To: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+
+
+
+Hi Ryan,
+
+
+
+This information is really helpful. I have worked in R before for a class I=
+ took during my undergraduate years so I am familiar with the format =96 th=
+ough still fairly limited in my understanding. I was able to successfully u=
+pdate my R and RStudio applications on my laptop and download the Seurat pa=
+ckage. I will plan to work on that tutorial you shared while you are doing =
+the Cell Ranger step and look forward to setting up a meeting once that ste=
+p is finished.
+
+
+
+Best,
+
+
+
+Cormac
+
+--
+
+Cormac J Lucas
+
+Morrison Laboratory
+
+Microbiology Graduate Program
+
+University of Colorado Anschutz Medical Campus
+
+
+
+
+
+From: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+Date: Tuesday, January 19, 2021 at 6:46 PM
+To: Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+
+Hi Cormac,
+
+
+
+The first step is to process the raw fastq files (what you received from th=
+e sequencing core) using the Cell Ranger software available from 10x Genomi=
+cs (https://support.10xgenomics.com/single-cell-gene-expression/software/pi=
+pelines/latest/what-is-cell-ranger). We first run "cellranger count" which =
+trims and aligns the reads, and generates a matrix containing the number of=
+ unique reads that align to each gene for each cell.
+
+
+
+I'm going to run this initial Cell Ranger step on the compute cluster since=
+ it generally requires more computational resources than a standard laptop.=
+ The remaining analysis will be mostly performed in R (using RStudio). Do y=
+ou have any experience working in R? If you would like to try to analyze th=
+ese data yourself, you can install R here: https://cran.rstudio.com/, and R=
+Studio (the free desktop version) here: https://rstudio.com/products/rstudi=
+o/download/.
+
+
+
+Once you get RStudio installed you will want to install the R package Seura=
+t (version 3.2.1), which is commonly used to analyze single-cell RNA-seq da=
+ta: https://satijalab.org/seurat/install.html. Here is a basic Seurat tutor=
+ial with more information about the general analysis workflow: https://sati=
+jalab.org/seurat/v3.2/pbmc3k_tutorial.html.
+
+
+
+Once I get the raw data processed with Cell Ranger, we can set up a meeting=
+ to discuss the output and talk more about the analysis. Let me know if you=
+ have trouble installing anything, it's also okay if you want to wait until=
+ we meet and I can walk you through these steps.
+
+
+
+Best,
+
+Ryan
+
+
+
+
+
+
+
+Ryan Sheridan, PhD
+
+Informatics Fellow
+
+RNA Bioscience Initiative
+
+Dept. of Biochemistry & Molecular Genetics
+
+University of Colorado School of Medicine
+
+________________________________
+
+From: Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Sent: Tuesday, January 19, 2021 1:23 PM
+To: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+
+
+
+Hi Ryan,
+
+
+
+Thanks for the email. Would you mind sharing with me how the initial first =
+steps to process and organize the data work? And what software components/p=
+ackages are required? I am a mac user and have done a little with bash befo=
+re. It would also be helpful to get an understanding of the workflow and ho=
+w to approach organizing and segregating the dataset because there are a nu=
+mber of different mRNAs I am looking for.
+
+
+
+Let me know if it would be helpful to set up a time to talk through the pro=
+cess at some point or if you have any questions for me.
+
+
+
+Best,
+
+
+
+Cormac
+
+
+
+From: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+Date: Tuesday, January 19, 2021 at 11:35 AM
+To: Shade, Ted R <TED.SHADE@CUANSCHUTZ.EDU>, Morrison, Thomas <THOMAS.MORRI=
+SON@CUANSCHUTZ.EDU>, Hesselberth, Jay <JAY.HESSELBERTH@CUANSCHUTZ.EDU>, Luc=
+as, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+
+Thanks Ted. Tem and Cormac, it's probably best if you also pick up the USB.
+
+
+
+Ryan
+
+
+
+
+
+Ryan Sheridan, PhD
+
+Informatics Fellow
+
+RNA Bioscience Initiative
+
+Dept. of Biochemistry & Molecular Genetics
+
+University of Colorado School of Medicine
+
+________________________________
+
+From: Shade, Ted R <TED.SHADE@CUANSCHUTZ.EDU>
+Sent: Tuesday, January 19, 2021 11:29 AM
+To: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>; Morrison, Thomas <THOMAS=
+.MORRISON@CUANSCHUTZ.EDU>; Hesselberth, Jay <JAY.HESSELBERTH@CUANSCHUTZ.EDU=
+>; Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>
+Subject: RE: 210108_A00405_0331_BHNW52DSXY
+
+
+
+Ryan,
+
+
+
+You bet, as soon as bodhi is back I=92ll start the transfer.  Do you still =
+need the USB or should we recycle?
+
+
+
+Thanks,
+
+Ted
+
+
+
+From: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU>
+Sent: Tuesday, January 19, 2021 11:24 AM
+To: Morrison, Thomas <THOMAS.MORRISON@CUANSCHUTZ.EDU>; Hesselberth, Jay <JA=
+Y.HESSELBERTH@CUANSCHUTZ.EDU>; Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU>;=
+ Shade, Ted R <TED.SHADE@CUANSCHUTZ.EDU>
+Subject: Re: 210108_A00405_0331_BHNW52DSXY
+
+
+
+Hi Ted,
+
+
+
+I was wondering if you could transfer these data to bodhi when it's back on=
+line.
+
+
+
+Thanks,
+
+Ryan
+
+
+
+
+
+
+
+Ryan Sheridan, PhD
+
+Informatics Fellow
+
+RNA Bioscience Initiative
+
+Dept. of Biochemistry & Molecular Genetics
+
+University of Colorado School of Medicine
+
+
+
+
+
+________________________________
+
+From: Morrison, Thomas <THOMAS.MORRISON@CUANSCHUTZ.EDU<mailto:THOMAS.MORRIS=
+ON@CUANSCHUTZ.EDU>>
+Sent: Tuesday, January 19, 2021 11:08 AM
+To: Sheridan, Ryan <RYAN.SHERIDAN@CUANSCHUTZ.EDU<mailto:RYAN.SHERIDAN@CUANS=
+CHUTZ.EDU>>; Hesselberth, Jay <JAY.HESSELBERTH@CUANSCHUTZ.EDU<mailto:JAY.HE=
+SSELBERTH@CUANSCHUTZ.EDU>>; Lucas, Cormac <CORMAC.LUCAS@CUANSCHUTZ.EDU<mail=
+to:CORMAC.LUCAS@CUANSCHUTZ.EDU>>
+Subject: FW: 210108_A00405_0331_BHNW52DSXY
+
+
+
+Hi Ryan, Cormac, and Jay,
+
+
+
+Please see the email below and the attachments. Katrina indicated that we h=
+ave over 4 billion clusters/8 billion PE reads.
+
+Thanks, Tem
+
+
+
+From: "Shade, Ted R" <TED.SHADE@CUANSCHUTZ.EDU<mailto:TED.SHADE@CUANSCHUTZ.=
+EDU>>
+Date: Tuesday, January 19, 2021 at 9:35 AM
+To: "Morrison, Thomas" <THOMAS.MORRISON@CUANSCHUTZ.EDU<mailto:THOMAS.MORRIS=
+ON@CUANSCHUTZ.EDU>>, "Davenport, Bennett J" <BENNETT.DAVENPORT@CUANSCHUTZ.E=
+DU<mailto:BENNETT.DAVENPORT@CUANSCHUTZ.EDU>>
+Cc: "Diener, Katrina" <KATRINA.DIENER@CUANSCHUTZ.EDU<mailto:KATRINA.DIENER@=
+CUANSCHUTZ.EDU>>
+Subject: 210108_A00405_0331_BHNW52DSXY
+
+
+
+Important!!  Your Sequence Data Files Will Be Deleted - Please Take Note: T=
+he client=92s sequence data files will be deleted 31 days after this email =
+notification stating the data is ready for delivery.  If you do not retriev=
+e/backup your data and subsequently review the respective data metrics prio=
+r to 31 days from the date of this email notification, you will be responsi=
+ble for all the cost incurred for resequencing=96 to essentially =93reprodu=
+ce=94 these data files
+
+
+
+
+
+Re:  Morrison 2x151 10x_V3_1
+
+
+
+Fastq and demultiplex summary files are ready to pick up on a USB.  The fil=
+tered reads distribution for all the barcodes in the lanes ranges from appr=
+ox. 35M to 142M clusters.
+
+
+
+The demultiplex summaries (.csv) are attached.
+
+
+
+A USB drive is ready to pick up in the location described below.
+
+
+
+Note:
+
+The data files have been copied to a USB stick.  It is ready to be picked u=
+p in Hensel-Phelps first floor (room P18-1002) just across from the tempera=
+ture check-in station (Hensel-Phelps West Entrance: Main West RC1N).  The U=
+SB is in a plastic bag in a opaque drop box adhered to the front door of th=
+e small Genomics Core freezer sitting on the counter to the right of the si=
+nk.  Also, please sign-in to the log clipboard sitting on the counter to le=
+ft of the sink.
+
+
+
+Please let me know if you have any questions.
+
+
+
+Thank you,
+
+Ted Shade
+
+
+
+
+
+
+
+--_000_DM5PR05MB29238034BB6E42A0D491F9809EBF9DM5PR05MB2923namp_
+Content-Type: text/html; charset="Windows-1252"
+Content-Transfer-Encoding: quoted-printable
+
+<html>
+<head>
+<meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3DWindows-1=
+252">
+<style type=3D"text/css" style=3D"display:none;"> P {margin-top:0;margin-bo=
+ttom:0;} </style>
+</head>
+<body dir=3D"ltr">
+<div style=3D"font-family: Calibri, Arial, Helvetica, sans-serif; font-size=
+: 12pt; color: rgb(0, 0, 0); background-color: rgb(255, 255, 255);">
+Great thanks</div>
+<div style=3D"font-family: Calibri, Arial, Helvetica, sans-serif; font-size=
+: 12pt; color: rgb(0, 0, 0); background-color: rgb(255, 255, 255);">
+Ryan<br>
+</div>
+<div>
+<div style=3D"font-family: Calibri, Arial, Helvetica, sans-serif; font-size=
+: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div id=3D"Signature">
+<div>
+<div></div>
+<div></div>
+<div style=3D"font-family: Calibri, Arial, Helvetica, sans-serif; font-size=
+: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div style=3D"font-family: Calibri, Arial, Helvetica, sans-serif; font-size=
+: 12pt; color: rgb(0, 0, 0);">
+<br>
+</div>
+<div id=3D"divtagdefaultwrapper" style=3D"font-size: 12pt; color: rgb(0, 0,=
+ 0); background-color: rgb(255, 255, 255); font-family: Calibri, Arial, Hel=
+vetica, sans-serif;">
+<div class=3D"BodyFragment"><font size=3D"2">
+<div class=3D"PlainText"><span id=3D"ms-rterangepaste-start"></span>
+<div>
+<p style=3D"font-size:11pt; font-family:Calibri,sans-serif; margin:0"><span=
+ style=3D"color: black; font-size: 12pt;">Ryan Sheridan, PhD</span></p>
+</div>
+<div>
+<p style=3D"font-size:11pt; font-family:Calibri,sans-serif; margin:0"><span=
+ style=3D"color: black; font-size: 12pt;">Informatics Fellow</span></p>
+</div>
+<div>
+<p style=3D"font-size:11pt; font-family:Calibri,sans-serif; margin:0"><span=
+ style=3D"color: black; font-size: 12pt;">RNA Bioscience Initiative</span><=
+/p>
+</div>
+<div>
+<p style=3D"font-size:11pt; font-family:Calibri,sans-serif; margin:0"><span=
+ style=3D"color: black; font-size: 12pt;">Dept. of Biochemistry &amp; Molec=
+ular Genetics</span></p>
+</div>
+<div>
+<p style=3D"font-size:11pt; font-family:Calibri,sans-serif; margin:0"><span=
+ style=3D"color: black; font-size: 12pt;">University of Colorado School of =
+Medicine</span></p>
+</div>
+<span style=3D"font-size:10pt"></span><span id=3D"ms-rterangepaste-end"></s=
+pan></div>
+</font></div>
+</div>
+</div>
+</div>
+</div>
+<div id=3D"appendonsend"></div>
+<hr style=3D"display:inline-block;width:98%" tabindex=3D"-1">
+<div id=3D"divRplyFwdMsg" dir=3D"ltr"><font face=3D"Calibri, sans-serif" st=
+yle=3D"font-size:11pt" color=3D"#000000"><b>From:</b> Lucas, Cormac &lt;COR=
+MAC.LUCAS@CUANSCHUTZ.EDU&gt;<br>
+<b>Sent:</b> Friday, January 22, 2021 5:07 PM<br>
+<b>To:</b> Sheridan, Ryan &lt;RYAN.SHERIDAN@CUANSCHUTZ.EDU&gt;<br>
+<b>Subject:</b> Re: 210108_A00405_0331_BHNW52DSXY</font>
+<div>&nbsp;</div>
+</div>
+<style>
+<!--
+@font-face
+	{font-family:"Cambria Math"}
+@font-face
+	{font-family:Calibri}
+p.x_MsoNormal, li.x_MsoNormal, div.x_MsoNormal
+	{margin:0in;
+	font-size:11.0pt;
+	font-family:"Calibri",sans-serif}
+a:link, span.x_MsoHyperlink
+	{color:#0563C1;
+	text-decoration:underline}
+p.x_xxmsonormal, li.x_xxmsonormal, div.x_xxmsonormal
+	{margin:0in;
+	font-size:11.0pt;
+	font-family:"Calibri",sans-serif}
+p.x_xxxmsonormal, li.x_xxxmsonormal, div.x_xxxmsonormal
+	{margin:0in;
+	font-size:11.0pt;
+	font-family:"Calibri",sans-serif}
+p.x_xxxxmsonormal, li.x_xxxxmsonormal, div.x_xxxxmsonormal
+	{margin:0in;
+	font-size:11.0pt;
+	font-family:"Calibri",sans-serif}
+p.x_xxxxxmsonormal, li.x_xxxxxmsonormal, div.x_xxxxxmsonormal
+	{margin:0in;
+	font-size:11.0pt;
+	font-family:"Calibri",sans-serif}
+p.x_xxxxxxxxxxxxxxxmsonormal, li.x_xxxxxxxxxxxxxxxmsonormal, div.x_xxxxxxxx=
+xxxxxxxmsonormal
+	{margin:0in;
+	font-size:11.0pt;
+	font-family:"Calibri",sans-serif}
+p.x_xxxxxxxxxxxxmsonormal, li.x_xxxxxxxxxxxxmsonormal, div.x_xxxxxxxxxxxxms=
+onormal
+	{margin:0in;
+	font-size:11.0pt;
+	font-family:"Calibri",sans-serif}
+p.x_xxxxxxxxxxxxxxxxmsoplaintext, li.x_xxxxxxxxxxxxxxxxmsoplaintext, div.x_=
+xxxxxxxxxxxxxxxxmsoplaintext
+	{margin:0in;
+	font-size:11.0pt;
+	font-family:"Calibri",sans-serif}
+span.x_xxxxxxxxxxxxxxxxapple-converted-space
+	{}
+span.x_EmailStyle30
+	{font-family:"Calibri",sans-serif;
+	color:windowtext}
+.x_MsoChpDefault
+	{font-size:10.0pt}
+@page WordSection1
+	{margin:1.0in 1.0in 1.0in 1.0in}
+div.x_WordSection1
+	{}
+-->
+</style>
+<div lang=3D"EN-US" link=3D"#0563C1" vlink=3D"purple" style=3D"word-wrap:br=
+eak-word">
+<div class=3D"x_WordSection1">
+<p class=3D"x_MsoNormal">Hi Ryan,</p>
+<p class=3D"x_MsoNormal">&nbsp;</p>
+<p class=3D"x_MsoNormal">I believe that is correct. The ORF of the sgRNA is=
+ shifted somewhat from the 5=92 half of the genome but there is a junction =
+of about ~50-80 untranslated nucleotides between the 5=92 half and the sgRN=
+A so I think you can start the sgRNA at
+ the entry labeled CAPSID and go from there.</p>
+<p class=3D"x_MsoNormal">&nbsp;</p>
+<p class=3D"x_MsoNormal">Cormac</p>
+<p class=3D"x_MsoNormal">&nbsp;</p>
+<div style=3D"border:none; border-top:solid #B5C4DF 1.0pt; padding:3.0pt 0i=
+n 0in 0in">
+<p class=3D"x_MsoNormal" style=3D"margin-bottom:12.0pt"><b><span style=3D"f=
+ont-size:12.0pt; color:black">From:
+</span></b><span style=3D"font-size:12.0pt; color:black">Sheridan, Ryan &lt=
+;RYAN.SHERIDAN@CUANSCHUTZ.EDU&gt;<br>
+<b>Date: </b>Friday, January 22, 2021 at 5:01 PM<br>
+<b>To: </b>Lucas, Cormac &lt;CORMAC.LUCAS@CUANSCHUTZ.EDU&gt;<br>
+<b>Subject: </b>Re: 210108_A00405_0331_BHNW52DSXY</span></p>
+</div>
+<div>
+<p class=3D"x_MsoNormal" style=3D"background:white"><span style=3D"font-siz=
+e:12.0pt; color:black">Hi Cormac,</span></p>
+</div>
+<div>
+<p class=3D"x_MsoNormal" style=3D"background:white"><span style=3D"font-siz=
+e:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_MsoNormal" style=3D"background:white"><span style=3D"font-siz=
+e:12.0pt; color:black">I'm thinking that for the cellranger reference we co=
+uld try splitting the CHIKV sequence into a 5' half and 3' half. So the sgR=
+NA would be handled as a separate &quot;gene&quot;
+ in the reference. We could then try to identify cells with more sgRNA sign=
+al relative to 5' signal. I know the sgRNA should be the 3' portion of the =
+sequence, but I wasn't sure exactly where it started. From the gff file tha=
+t Tem sent, it seems that the sgRNA
+ should start at base 7567 (gff entry labeled &quot;CAPSID&quot;), is this =
+correct?</span></p>
+</div>
+<div>
+<p class=3D"x_MsoNormal" style=3D"background:white"><span style=3D"font-siz=
+e:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_MsoNormal" style=3D"background:white"><span style=3D"font-siz=
+e:12.0pt; color:black">Ryan</span></p>
+</div>
+<div>
+<div>
+<p class=3D"x_MsoNormal"><span style=3D"font-size:12.0pt; color:black">&nbs=
+p;</span></p>
+</div>
+<div id=3D"x_Signature">
+<div>
+<div>
+<p class=3D"x_MsoNormal"><span style=3D"font-size:12.0pt; color:black">&nbs=
+p;</span></p>
+</div>
+<div>
+<p class=3D"x_MsoNormal"><span style=3D"font-size:12.0pt; color:black">&nbs=
+p;</span></p>
+</div>
+<div id=3D"x_divtagdefaultwrapper">
+<div>
+<div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Ryan Sheridan, PhD</span><span style=3D"color:black"></span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Informatics Fellow</span><span style=3D"color:black"></span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>RNA Bioscience Initiative</span><span style=3D"color:black"></span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Dept. of Biochemistry &amp; Molecular Genetics</span><span style=3D"color:=
+black"></span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>University of Colorado School of Medicine</span><span style=3D"color:black=
+"></span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class=3D"x_MsoNormal" align=3D"center" style=3D"text-align:center">
+<hr size=3D"0" width=3D"100%" align=3D"center">
+</div>
+<div id=3D"x_divRplyFwdMsg">
+<p class=3D"x_MsoNormal"><b><span style=3D"color:black">From:</span></b><sp=
+an style=3D"color:black"> Sheridan, Ryan &lt;RYAN.SHERIDAN@CUANSCHUTZ.EDU&g=
+t;<br>
+<b>Sent:</b> Wednesday, January 20, 2021 10:06 AM<br>
+<b>To:</b> Lucas, Cormac &lt;CORMAC.LUCAS@CUANSCHUTZ.EDU&gt;<br>
+<b>Subject:</b> Re: 210108_A00405_0331_BHNW52DSXY</span> </p>
+<div>
+<p class=3D"x_MsoNormal">&nbsp;</p>
+</div>
+</div>
+<div>
+<div>
+<div>
+<div>
+<p class=3D"x_MsoNormal">Great, sounds good</p>
+</div>
+<div>
+<p class=3D"x_MsoNormal">&nbsp;</p>
+</div>
+<div>
+<p class=3D"x_MsoNormal">Ryan</p>
+</div>
+</div>
+<div>
+<p class=3D"x_MsoNormal">&nbsp;</p>
+</div>
+<div>
+<p class=3D"x_MsoNormal">Get <a href=3D"https://aka.ms/o0ukef">Outlook for =
+iOS</a></p>
+</div>
+</div>
+<div class=3D"x_MsoNormal" align=3D"center" style=3D"text-align:center">
+<hr size=3D"0" width=3D"100%" align=3D"center">
+</div>
+<div id=3D"x_x_divRplyFwdMsg">
+<p class=3D"x_MsoNormal"><b><span style=3D"color:black">From:</span></b><sp=
+an style=3D"color:black"> Lucas, Cormac &lt;CORMAC.LUCAS@CUANSCHUTZ.EDU&gt;=
+<br>
+<b>Sent:</b> Wednesday, January 20, 2021 9:30:26 AM<br>
+<b>To:</b> Sheridan, Ryan &lt;RYAN.SHERIDAN@CUANSCHUTZ.EDU&gt;<br>
+<b>Subject:</b> Re: 210108_A00405_0331_BHNW52DSXY</span> </p>
+<div>
+<p class=3D"x_MsoNormal">&nbsp;</p>
+</div>
+</div>
+<div>
+<div>
+<p class=3D"x_xxmsonormal">Hi Ryan,</p>
+<p class=3D"x_xxmsonormal">&nbsp;</p>
+<p class=3D"x_xxmsonormal">This information is really helpful. I have worke=
+d in R before for a class I took during my undergraduate years so I am fami=
+liar with the format =96 though still fairly limited in my understanding. I=
+ was able to successfully update my
+ R and RStudio applications on my laptop and download the Seurat package. I=
+ will plan to work on that tutorial you shared while you are doing the Cell=
+ Ranger step and look forward to setting up a meeting once that step is fin=
+ished.</p>
+<p class=3D"x_xxmsonormal">&nbsp;</p>
+<p class=3D"x_xxmsonormal">Best,</p>
+<p class=3D"x_xxmsonormal">&nbsp;</p>
+<p class=3D"x_xxmsonormal">Cormac</p>
+<p class=3D"x_xxmsonormal">--&nbsp;</p>
+<div>
+<p class=3D"x_xxmsonormal">Cormac J Lucas</p>
+<p class=3D"x_xxmsonormal">Morrison Laboratory</p>
+<p class=3D"x_xxmsonormal">Microbiology Graduate Program</p>
+</div>
+<p class=3D"x_xxmsonormal">University of Colorado Anschutz Medical Campus</=
+p>
+<p class=3D"x_xxmsonormal">&nbsp;</p>
+<p class=3D"x_xxmsonormal">&nbsp;</p>
+<div style=3D"border:none; border-top:solid #B5C4DF 1.0pt; padding:3.0pt 0i=
+n 0in 0in">
+<p class=3D"x_xxmsonormal" style=3D"margin-bottom:12.0pt"><b><span style=3D=
+"font-size:12.0pt; color:black">From:
+</span></b><span style=3D"font-size:12.0pt; color:black">Sheridan, Ryan &lt=
+;RYAN.SHERIDAN@CUANSCHUTZ.EDU&gt;<br>
+<b>Date: </b>Tuesday, January 19, 2021 at 6:46 PM<br>
+<b>To: </b>Lucas, Cormac &lt;CORMAC.LUCAS@CUANSCHUTZ.EDU&gt;<br>
+<b>Subject: </b>Re: 210108_A00405_0331_BHNW52DSXY</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">Hi Cormac,</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">The first step is to process the raw fastq files (=
+what you received from the sequencing core) using the Cell Ranger software =
+available from 10x Genomics (<a href=3D"https://support.10xgenomics.com/sin=
+gle-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger">htt=
+ps://support.10xgenomics.com/single-cell-gene-expression/software/pipelines=
+/latest/what-is-cell-ranger</a>).
+ We first run &quot;cellranger count&quot; which trims and aligns the reads=
+, and generates a matrix containing the number of unique reads that align t=
+o each gene for each cell.</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">I'm going to run this initial Cell Ranger step on =
+the compute cluster since it generally requires more computational resource=
+s than a standard laptop. The remaining
+ analysis will be mostly performed in R (using RStudio). Do you have any ex=
+perience working in R? If you would like to try to analyze these data yours=
+elf, you can install R here:&nbsp;<a href=3D"https://cran.rstudio.com/">htt=
+ps://cran.rstudio.com/</a>, and RStudio
+ (the free desktop version) here:&nbsp;<a href=3D"https://rstudio.com/produ=
+cts/rstudio/download/">https://rstudio.com/products/rstudio/download/</a>.
+</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">Once you get RStudio installed you will want to in=
+stall the R package Seurat (version 3.2.1), which is commonly used to analy=
+ze single-cell RNA-seq data:
+<a href=3D"https://satijalab.org/seurat/install.html">https://satijalab.org=
+/seurat/install.html</a>. Here is a basic Seurat tutorial with more informa=
+tion about the general analysis workflow:
+<a href=3D"https://satijalab.org/seurat/v3.2/pbmc3k_tutorial.html">https://=
+satijalab.org/seurat/v3.2/pbmc3k_tutorial.html</a>.</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">Once I get the raw data processed with Cell Ranger=
+, we can set up a meeting to discuss the output and talk more about the ana=
+lysis. Let me know if you have trouble
+ installing anything, it's also okay if you want to wait until we meet and =
+I can walk you through these steps.</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">Best,</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal" style=3D"background:white"><span style=3D"font-s=
+ize:12.0pt; color:black">Ryan</span></p>
+</div>
+<div>
+<div>
+<p class=3D"x_xxmsonormal"><span style=3D"font-size:12.0pt; color:black">&n=
+bsp;</span></p>
+</div>
+<div id=3D"x_x_x_Signature">
+<div>
+<div>
+<p class=3D"x_xxmsonormal"><span style=3D"font-size:12.0pt; color:black">&n=
+bsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxmsonormal"><span style=3D"font-size:12.0pt; color:black">&n=
+bsp;</span></p>
+</div>
+<div id=3D"x_x_x_divtagdefaultwrapper">
+<div>
+<div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Ryan Sheridan, PhD</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Informatics Fellow</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>RNA Bioscience Initiative</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Dept. of Biochemistry &amp; Molecular Genetics</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>University of Colorado School of Medicine</span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class=3D"x_MsoNormal" align=3D"center" style=3D"text-align:center">
+<hr size=3D"0" width=3D"100%" align=3D"center">
+</div>
+<div id=3D"x_x_x_divRplyFwdMsg">
+<p class=3D"x_xxmsonormal"><b><span style=3D"color:black">From:</span></b><=
+span style=3D"color:black"> Lucas, Cormac &lt;CORMAC.LUCAS@CUANSCHUTZ.EDU&g=
+t;<br>
+<b>Sent:</b> Tuesday, January 19, 2021 1:23 PM<br>
+<b>To:</b> Sheridan, Ryan &lt;RYAN.SHERIDAN@CUANSCHUTZ.EDU&gt;<br>
+<b>Subject:</b> Re: 210108_A00405_0331_BHNW52DSXY</span> </p>
+<div>
+<p class=3D"x_xxmsonormal">&nbsp;</p>
+</div>
+</div>
+<div>
+<div>
+<p class=3D"x_xxxmsonormal">Hi Ryan,</p>
+<p class=3D"x_xxxmsonormal">&nbsp;</p>
+<p class=3D"x_xxxmsonormal">Thanks for the email. Would you mind sharing wi=
+th me how the initial first steps to process and organize the data work? An=
+d what software components/packages are required? I am a mac user and have =
+done a little with bash before. It
+ would also be helpful to get an understanding of the workflow and how to a=
+pproach organizing and segregating the dataset because there are a number o=
+f different mRNAs I am looking for.</p>
+<p class=3D"x_xxxmsonormal">&nbsp;</p>
+<p class=3D"x_xxxmsonormal">Let me know if it would be helpful to set up a =
+time to talk through the process at some point or if you have any questions=
+ for me.</p>
+<p class=3D"x_xxxmsonormal">&nbsp;</p>
+<p class=3D"x_xxxmsonormal">Best,</p>
+<p class=3D"x_xxxmsonormal">&nbsp;</p>
+<p class=3D"x_xxxmsonormal">Cormac</p>
+<p class=3D"x_xxxmsonormal">&nbsp;</p>
+<div style=3D"border:none; border-top:solid #B5C4DF 1.0pt; padding:3.0pt 0i=
+n 0in 0in">
+<p class=3D"x_xxxmsonormal" style=3D"margin-bottom:12.0pt"><b><span style=
+=3D"font-size:12.0pt; color:black">From:
+</span></b><span style=3D"font-size:12.0pt; color:black">Sheridan, Ryan &lt=
+;RYAN.SHERIDAN@CUANSCHUTZ.EDU&gt;<br>
+<b>Date: </b>Tuesday, January 19, 2021 at 11:35 AM<br>
+<b>To: </b>Shade, Ted R &lt;TED.SHADE@CUANSCHUTZ.EDU&gt;, Morrison, Thomas =
+&lt;THOMAS.MORRISON@CUANSCHUTZ.EDU&gt;, Hesselberth, Jay &lt;JAY.HESSELBERT=
+H@CUANSCHUTZ.EDU&gt;, Lucas, Cormac &lt;CORMAC.LUCAS@CUANSCHUTZ.EDU&gt;<br>
+<b>Subject: </b>Re: 210108_A00405_0331_BHNW52DSXY</span></p>
+</div>
+<div>
+<p class=3D"x_xxxmsonormal">Thanks Ted. Tem and Cormac, it's probably best =
+if you also pick up the USB.</p>
+</div>
+<div>
+<p class=3D"x_xxxmsonormal">&nbsp;</p>
+</div>
+<div>
+<p class=3D"x_xxxmsonormal">Ryan</p>
+<div id=3D"x_x_x_x_Signature">
+<div>
+<div>
+<p class=3D"x_xxxmsonormal"><span style=3D"font-size:12.0pt; color:black">&=
+nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxxmsonormal"><span style=3D"font-size:12.0pt; color:black">&=
+nbsp;</span></p>
+</div>
+<div id=3D"x_x_x_x_divtagdefaultwrapper">
+<div>
+<div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Ryan Sheridan, PhD</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Informatics Fellow</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>RNA Bioscience Initiative</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Dept. of Biochemistry &amp; Molecular Genetics</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>University of Colorado School of Medicine</span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class=3D"x_MsoNormal" align=3D"center" style=3D"text-align:center">
+<hr size=3D"0" width=3D"100%" align=3D"center">
+</div>
+<div id=3D"x_x_x_x_divRplyFwdMsg">
+<p class=3D"x_xxxmsonormal"><b><span style=3D"color:black">From:</span></b>=
+<span style=3D"color:black"> Shade, Ted R &lt;TED.SHADE@CUANSCHUTZ.EDU&gt;<=
+br>
+<b>Sent:</b> Tuesday, January 19, 2021 11:29 AM<br>
+<b>To:</b> Sheridan, Ryan &lt;RYAN.SHERIDAN@CUANSCHUTZ.EDU&gt;; Morrison, T=
+homas &lt;THOMAS.MORRISON@CUANSCHUTZ.EDU&gt;; Hesselberth, Jay &lt;JAY.HESS=
+ELBERTH@CUANSCHUTZ.EDU&gt;; Lucas, Cormac &lt;CORMAC.LUCAS@CUANSCHUTZ.EDU&g=
+t;<br>
+<b>Subject:</b> RE: 210108_A00405_0331_BHNW52DSXY</span> </p>
+<div>
+<p class=3D"x_xxxmsonormal">&nbsp;</p>
+</div>
+</div>
+<div>
+<div>
+<p class=3D"x_xxxxmsonormal">Ryan,</p>
+<p class=3D"x_xxxxmsonormal">&nbsp;</p>
+<p class=3D"x_xxxxmsonormal">You bet, as soon as bodhi is back I=92ll start=
+ the transfer.&nbsp; Do you still need the USB or should we recycle?</p>
+<p class=3D"x_xxxxmsonormal">&nbsp;</p>
+<p class=3D"x_xxxxmsonormal">Thanks,</p>
+<p class=3D"x_xxxxmsonormal">Ted</p>
+<p class=3D"x_xxxxmsonormal">&nbsp;</p>
+<div>
+<div style=3D"border:none; border-top:solid #E1E1E1 1.0pt; padding:3.0pt 0i=
+n 0in 0in">
+<p class=3D"x_xxxxmsonormal"><b>From:</b> Sheridan, Ryan &lt;RYAN.SHERIDAN@=
+CUANSCHUTZ.EDU&gt;
+<br>
+<b>Sent:</b> Tuesday, January 19, 2021 11:24 AM<br>
+<b>To:</b> Morrison, Thomas &lt;THOMAS.MORRISON@CUANSCHUTZ.EDU&gt;; Hesselb=
+erth, Jay &lt;JAY.HESSELBERTH@CUANSCHUTZ.EDU&gt;; Lucas, Cormac &lt;CORMAC.=
+LUCAS@CUANSCHUTZ.EDU&gt;; Shade, Ted R &lt;TED.SHADE@CUANSCHUTZ.EDU&gt;<br>
+<b>Subject:</b> Re: 210108_A00405_0331_BHNW52DSXY</p>
+</div>
+</div>
+<p class=3D"x_xxxxmsonormal">&nbsp;</p>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">Hi Ted,</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">I was wondering if you could transfer these data=
+ to bodhi when it's back online.</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">Thanks,</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">Ryan</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<div>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<div>
+<div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<div>
+<div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Ryan Sheridan, PhD</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Informatics Fellow</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>RNA Bioscience Initiative</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>Dept. of Biochemistry &amp; Molecular Genetics</span></p>
+</div>
+<div>
+<p style=3D"background:white"><span style=3D"font-size:12.0pt; color:black"=
+>University of Colorado School of Medicine</span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<p class=3D"x_xxxxmsonormal" style=3D"background:white"><span style=3D"font=
+-size:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxmsonormal"><span style=3D"font-size:12.0pt; color:black">=
+&nbsp;</span></p>
+</div>
+<div class=3D"x_MsoNormal" align=3D"center" style=3D"text-align:center">
+<hr size=3D"0" width=3D"100%" align=3D"center">
+</div>
+<div id=3D"x_x_x_x_x_divRplyFwdMsg">
+<p class=3D"x_xxxxmsonormal"><b><span style=3D"color:black">From:</span></b=
+><span style=3D"color:black"> Morrison, Thomas &lt;<a href=3D"mailto:THOMAS=
+.MORRISON@CUANSCHUTZ.EDU">THOMAS.MORRISON@CUANSCHUTZ.EDU</a>&gt;<br>
+<b>Sent:</b> Tuesday, January 19, 2021 11:08 AM<br>
+<b>To:</b> Sheridan, Ryan &lt;<a href=3D"mailto:RYAN.SHERIDAN@CUANSCHUTZ.ED=
+U">RYAN.SHERIDAN@CUANSCHUTZ.EDU</a>&gt;; Hesselberth, Jay &lt;<a href=3D"ma=
+ilto:JAY.HESSELBERTH@CUANSCHUTZ.EDU">JAY.HESSELBERTH@CUANSCHUTZ.EDU</a>&gt;=
+; Lucas, Cormac &lt;<a href=3D"mailto:CORMAC.LUCAS@CUANSCHUTZ.EDU">CORMAC.L=
+UCAS@CUANSCHUTZ.EDU</a>&gt;<br>
+<b>Subject:</b> FW: 210108_A00405_0331_BHNW52DSXY</span> </p>
+<div>
+<p class=3D"x_xxxxmsonormal">&nbsp;</p>
+</div>
+</div>
+<div>
+<div>
+<p class=3D"x_xxxxxmsonormal">Hi Ryan, Cormac, and Jay, </p>
+<p class=3D"x_xxxxxmsonormal">&nbsp;</p>
+<p class=3D"x_xxxxxmsonormal">Please see the email below and the attachment=
+s. Katrina indicated that we have over 4 billion clusters/8 billion PE read=
+s.<br>
+<br>
+Thanks, Tem</p>
+<p class=3D"x_xxxxxmsonormal">&nbsp;</p>
+<div style=3D"border:none; border-top:solid #B5C4DF 1.0pt; padding:3.0pt 0i=
+n 0in 0in">
+<p class=3D"x_xxxxxmsonormal"><b><span style=3D"font-size:12.0pt; color:bla=
+ck">From: </span>
+</b><span style=3D"font-size:12.0pt; color:black">&quot;Shade, Ted R&quot; =
+&lt;<a href=3D"mailto:TED.SHADE@CUANSCHUTZ.EDU">TED.SHADE@CUANSCHUTZ.EDU</a=
+>&gt;<br>
+<b>Date: </b>Tuesday, January 19, 2021 at 9:35 AM<br>
+<b>To: </b>&quot;Morrison, Thomas&quot; &lt;<a href=3D"mailto:THOMAS.MORRIS=
+ON@CUANSCHUTZ.EDU">THOMAS.MORRISON@CUANSCHUTZ.EDU</a>&gt;, &quot;Davenport,=
+ Bennett J&quot; &lt;<a href=3D"mailto:BENNETT.DAVENPORT@CUANSCHUTZ.EDU">BE=
+NNETT.DAVENPORT@CUANSCHUTZ.EDU</a>&gt;<br>
+<b>Cc: </b>&quot;Diener, Katrina&quot; &lt;<a href=3D"mailto:KATRINA.DIENER=
+@CUANSCHUTZ.EDU">KATRINA.DIENER@CUANSCHUTZ.EDU</a>&gt;<br>
+<b>Subject: </b>210108_A00405_0331_BHNW52DSXY</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxxmsonormal">&nbsp;</p>
+</div>
+<div>
+<p class=3D"x_xxxxxmsonormal"><b><u><span style=3D"color:red; background:ye=
+llow">Important!!&nbsp; Your Sequence Data Files Will Be Deleted - Please T=
+ake Note:</span></u></b><span style=3D"color:red; background:yellow">&nbsp;=
+</span><span style=3D"color:#201F1E; background:yellow">The
+ client=92s sequence data files will be deleted&nbsp;<b>31 days&nbsp;<i>aft=
+er&nbsp;</i></b>this email notification stating the data is ready for deliv=
+ery.&nbsp;&nbsp;<b>If you do not retrieve/backup your</b>&nbsp;data&nbsp;an=
+d&nbsp;subsequently review the respective data metrics&nbsp;<b><i>prior&nbs=
+p;</i></b>to
+ 31 days from the date of this email notification, you<b>&nbsp;will be resp=
+onsible for all the cost incurred for resequencing</b>=96 to essentially =
+=93reproduce=94 these data files</span></p>
+<div>
+<div>
+<div>
+<div>
+<div>
+<p class=3D"x_xxxxxmsonormal"><span style=3D"font-size:12.0pt; color:black"=
+>&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxxmsonormal"><span style=3D"font-size:12.0pt; color:black"=
+>&nbsp;</span></p>
+</div>
+<div>
+<div>
+<div>
+<div>
+<p class=3D"x_xxxxxmsonormal"><span lang=3D"FR" style=3D"color:black">Re:&n=
+bsp;<span class=3D"x_xxxxxxxxxxxxxxxxapple-converted-space">
+</span></span><span lang=3D"FR" style=3D"color:#1F497D">M</span><span lang=
+=3D"FR">orrison<span class=3D"x_xxxxxxxxxxxxxxxxapple-converted-space"><spa=
+n style=3D"color:black">
+</span></span></span><span lang=3D"FR" style=3D"font-size:12.0pt">2x151 10x=
+_V3_1</span></p>
+</div>
+</div>
+<div>
+<div>
+<div>
+<div>
+<div id=3D"x_x_x_x_x_x_x_x_x_x_x_x_x_x_divtagdefaultwrapper">
+<div>
+<div>
+<div id=3D"x_x_x_x_x_x_x_x_x_x_x_x_x_x_x_divtagdefaultwrapper">
+<div>
+<div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal" style=3D"background:white"><span st=
+yle=3D"color:#1F497D">&nbsp;</span></p>
+<div>
+<div>
+<p class=3D"x_xxxxxmsonormal" style=3D"background:white; background-attachm=
+ent:scroll">
+<span style=3D"color:black">Fastq</span><span class=3D"x_xxxxxxxxxxxxxxxxap=
+ple-converted-space"><span style=3D"color:#1F497D">&nbsp;</span></span><spa=
+n style=3D"color:black">an</span><span style=3D"color:#1F497D">d<span class=
+=3D"x_xxxxxxxxxxxxxxxxapple-converted-space">&nbsp;</span></span><span styl=
+e=3D"color:black">demultiplex
+ summary files are ready to pick up on a USB. &nbsp;</span><span style=3D"c=
+olor:#1F497D">The filtered reads distribution for all the barcode</span><sp=
+an style=3D"color:black">s</span><span style=3D"color:#1F497D"> in the&nbsp=
+;lane</span><span style=3D"color:black">s</span><span style=3D"color:#1F497=
+D">
+ ranges from&nbsp;approx. </span><span style=3D"color:black">35</span><span=
+ style=3D"color:#1F497D">M to
+</span><span style=3D"color:black">142</span><span style=3D"color:#1F497D">=
+M clusters.</span></p>
+</div>
+</div>
+</div>
+<div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxmsonormal"><span style=3D"color:#1F497D">&nbsp;</=
+span></p>
+</div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal" style=3D"background:white; backgrou=
+nd-attachment:scroll">
+<span style=3D"color:black">The demultiplex summaries (.</span><span style=
+=3D"color:#1F497D">csv</span><span style=3D"color:black">) are attached.</s=
+pan></p>
+</div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal" style=3D"background:white; backgrou=
+nd-attachment:scroll">
+<span style=3D"color:black">&nbsp;</span></p>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxxmsoplaintext" style=3D"background:white; back=
+ground-attachment:scroll">
+<span style=3D"font-size:12.0pt; font-family:&quot;Times New Roman&quot;,se=
+rif; color:black">A USB drive is ready to pick up in the location described=
+ below.</span></p>
+<p class=3D"x_xxxxxxxxxxxxxxxxmsoplaintext" style=3D"background:white; back=
+ground-attachment:scroll">
+<span style=3D"font-size:12.0pt; font-family:&quot;Times New Roman&quot;,se=
+rif; color:black">&nbsp;</span></p>
+<p class=3D"x_xxxxxxxxxxxxxxxxmsoplaintext" style=3D"background:white; back=
+ground-attachment:scroll">
+<b><u><span style=3D"font-size:12.0pt; font-family:&quot;Times New Roman&qu=
+ot;,serif; color:#ED5C57">Note:</span></u></b><span style=3D"font-size:12.0=
+pt; font-family:&quot;Times New Roman&quot;,serif; color:#1F497D">&nbsp;</s=
+pan></p>
+<p class=3D"x_xxxxxxxxxxxxxxxxmsoplaintext" style=3D"background:white; back=
+ground-attachment:scroll">
+<span style=3D"font-size:12.0pt; font-family:&quot;Times New Roman&quot;,se=
+rif; color:black">The data files have been copied to a USB stick. &nbsp;I</=
+span><span style=3D"color:black">t is ready to be picked up in Hensel-Phelp=
+s first floor (</span><b><span style=3D"color:#ED5C57">room
+ P18-1002</span></b><span style=3D"color:black">) just across from the temp=
+erature check-in station (</span><b><span style=3D"font-size:12.0pt; color:=
+#ED5C57">Hensel-Phelps West Entrance: Main West RC1N</span></b><span style=
+=3D"color:black">). &nbsp;The USB is in a plastic
+ bag in a opaque drop box adhered to the front door of the small Genomics C=
+ore freezer sitting on the counter to the right of the sink. &nbsp;Also, pl=
+ease sign-in to the log clipboard sitting on the counter to left of the sin=
+k.</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxxmsonormal" style=3D"background:white; background-attachm=
+ent:scroll">
+<span style=3D"color:black">&nbsp;</span></p>
+</div>
+</div>
+</div>
+<div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal" style=3D"background:white; backgrou=
+nd-attachment:scroll">
+<span style=3D"color:black">Please let me know if you have any questions.</=
+span></p>
+</div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal" style=3D"background:white; backgrou=
+nd-attachment:scroll">
+<span style=3D"color:black">&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal" style=3D"background:white; backgrou=
+nd-attachment:scroll">
+<span style=3D"color:black">Thank you,</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal" style=3D"background:white; backgrou=
+nd-attachment:scroll">
+<span style=3D"color:black">Ted Shade&nbsp;</span></p>
+</div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal" style=3D"background:white; backgrou=
+nd-attachment:scroll">
+<span style=3D"font-size:12.0pt; color:black">&nbsp;</span></p>
+</div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal"><span style=3D"font-size:12.0pt; co=
+lor:black">&nbsp;</span></p>
+<div>
+<div>
+<p class=3D"x_xxxxxxxxxxxxxxxmsonormal"><span style=3D"font-size:12.0pt; co=
+lor:black">&nbsp;</span></p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</body>
+</html>
+
+--_000_DM5PR05MB29238034BB6E42A0D491F9809EBF9DM5PR05MB2923namp_--

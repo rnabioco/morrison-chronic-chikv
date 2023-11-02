@@ -1,0 +1,610 @@
+
+```{r "packages", include = FALSE}
+
+# Load packages
+pcks <- c(
+  "tidyverse",   "Seurat",
+  "here",        "cowplot",
+  "clustifyr",   "clustifyrdata",
+  "colorblindr", "knitr",
+  "scales",      "DoubletFinder",
+  "presto",      "gprofiler2",
+  "ggrepel",     "djvdj",
+  "patchwork",   "broom",
+  "M3Drop",      "ggtrace",
+  "qs"
+)
+
+purrr::walk(pcks, library, character.only = TRUE)
+
+source(here(params$template_dir, "funs.R"))
+
+```
+
+```{r "params", echo = FALSE}
+
+# Default chunk options
+opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  echo    = FALSE
+)
+
+# Set directories
+proj <- basename(here())
+
+so_dir    <- file.path(params$so_dir, "morrison-scRNA-seq", unenr_dir, "sobjs")
+table_dir <- here(unenr_dir, params$table_dir)
+geo_dir   <- here(unenr_dir, params$geo_dir)
+metrics   <- here(unenr_dir, params$metrics)
+
+# Should objects be created
+load_objs <- "so"
+
+files_in <- load_objs %>%
+  str_c(".rds") %>%
+  here(so_dir, .)
+
+create_so <- files_in %>%
+  map_lgl(~ !file.exists(here(.x))) %>%
+  any()
+
+# Should enriched objects be created
+create_enr_so <- !file.exists(here(so_dir, "so_enr.rds"))
+
+# Clustering parameters
+rslns <- c(3.4, 4.2, 5)
+
+type_clsts <- rslns %>%
+  set_clst_names()
+
+type_clst_clmn <- type_clsts %>%
+  pluck(as.character(params$type_res), "clst")
+
+mac_clsts <- params$mac_res %>%
+  set_clst_names("mac_")
+
+mac_clst_clmn <- mac_clsts %>%
+  pluck(as.character(params$mac_res), "clst")
+
+fib_clsts <- rslns %>%
+  set_clst_names("fib_")
+
+fib_clst_clmn <- fib_clsts %>%
+  pluck(as.character(params$fib_res), "clst")
+
+# Cell types to use for identifying subsets
+lec_cell_types <- "Endothelial cells"
+fib_cell_types <- c("Fibroblasts", "Stromal cells (DN)")
+
+# Treatment labels
+treats <- c(
+  U  = "mock",
+  M  = "mock",
+  A  = "CHIKV",
+  AF = "CHIKV",
+  C  = "CHIKV"
+)
+
+# CHIKV group labels
+chikv_grps <- c("CHIKV-low", "CHIKV-high")
+
+```
+
+```{r "references", echo = FALSE}
+
+# LEC reference
+ref_lec <- ref_immgen[, grepl("^Endothelial cells", colnames(ref_immgen))]
+ref_lec <- ref_lec[rownames(ref_lec) %in% rownames(ref_LEC_xiang), ]
+
+colnames(ref_lec) <- colnames(ref_lec) %>%
+  str_replace("Endothelial cells \\(BEC\\)", "BEC")
+
+ref_LEC_xiang <- ref_LEC_xiang[rownames(ref_lec), ]
+
+if (!identical(rownames(ref_LEC_xiang), rownames(ref_lec))) {
+  stop("LEC reference rownames do not match.")
+}
+
+ref_lec <- cbind(ref_LEC_xiang, ref_lec)
+ref_lec <- ref_lec[, !grepl("^Endothelial cells", colnames(ref_lec))]
+
+# Fibroblast/stromal cell reference
+ref_fib <- ref_immgen[, grepl("^Fibroblast", colnames(ref_immgen))]
+ref_fib <- ref_fib[rownames(ref_fib) %in% rownames(ref_lymphnodestromal), ]
+
+ref_lymphnodestromal <- ref_lymphnodestromal[rownames(ref_fib), ]
+
+if (!identical(rownames(ref_lymphnodestromal), rownames(ref_fib))) {
+  stop("Fibroblast/stromal reference rownames do not match.")
+}
+
+ref_fib <- cbind(ref_lymphnodestromal, ref_fib)
+
+```
+
+```{r "create objects", include = FALSE, eval = create_so}
+
+# Create Seurat object
+mats <- params$samples %>%
+  set_names() %>%
+  map_chr(~ here(file.path(unenr_dir, .x, "outs/filtered_feature_bc_matrix")))
+
+sobjs <- mats %>%
+  imap(~ create_virus_obj(
+    mat_dir     = .x,
+    proj_name   = .y,
+    gene_min    = params$gene_min,
+    gene_max    = params$gene_max,
+    mito_max    = params$mito_max,
+    virus_str   = "^CHIKV",
+    virus_assay = "CHIKV"
+  ))
+
+```
+
+```{r "doublets", eval = create_so && params$rm_doublets}
+
+# Estimate doublets
+# add doublet classifications to meta.data
+sobjs <- sobjs %>%
+  map(~ {
+    .x %>%
+      run_doubletFinder(
+        mito_max = params$mito_max,
+        gene_min = params$gene_min,
+        prep     = TRUE,
+        rsln     = 5,
+        PCs      = 1:50
+      ) %>%
+      mutate_meta(
+        mutate,
+        qc_class = ifelse(
+          !is.na(dbl_class) & dbl_class == "Doublet",
+          str_to_lower(dbl_class),
+          qc_class
+        )
+      )
+  })
+
+```
+
+```{r "cluster cells", eval = create_so}
+
+# Identify CHIKV low/high cells
+# Do not cluster since <100 cells with CHIKV counts
+sobjs <- sobjs %>%
+  map(~ {
+    .x %>%
+      mutate_meta(
+        mutate,
+        chikv_grp = ifelse(nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1]),
+        nCount_CHIKV_log = log10(nCount_CHIKV + 1)
+      )
+  })
+
+# Format sample/replicate names
+sobjs <- sobjs %>%
+  map(~ {
+    .x %>%
+      mutate_meta(
+        mutate,
+        treatment = str_extract(orig.ident, "^[A-Z]+"),
+        treatment = treats[treatment],
+        rep       = str_extract(orig.ident, "[0-9]+$"),
+        tm        = params$tm,
+        sample    = str_c(treatment, tm, rep, sep = "-")
+      )
+  })
+
+# Filter, normalize, and merge objects
+so <- sobjs %>%
+  map(~ {
+    .x %>%
+      subset(subset = qc_class == "pass") %>%
+      norm_sobj(
+        cc_scoring = TRUE,
+        rna_method = "LogNormalize",
+        scale_data = FALSE
+      )
+  })
+
+so <- merge(so[[1]], so[2:length(so)])
+
+# Find variable features with M3Drop
+# counts cannot be log-normalized
+counts <- so %>%
+  GetAssayData(
+    slot  = "counts",
+    assay = "RNA"
+  ) %>%
+  M3DropConvertData(
+    is.log    = FALSE,
+    is.counts = TRUE
+  )
+
+var_genes <- counts %>%
+  M3DropFeatureSelection(
+    mt_threshold  = 0.001,
+    suppress.plot = TRUE
+  )
+
+VariableFeatures(so) <- rownames(var_genes)
+
+# Cluster cells
+so <- so %>%
+  ScaleData(assay = "RNA") %>%
+  cluster_RNA(
+    assay      = "RNA",
+    resolution = rslns,
+    dims       = 1:50
+  )
+
+# Save unfiltered objects and meta.data
+# Save and delete raw objects asap to free up memory
+so_raw <- merge(sobjs[[1]], sobjs[2:length(sobjs)])
+
+so_raw_df <- so_raw@meta.data %>%
+  as_tibble(rownames = "cell_id")
+
+save_objs(so_raw)
+
+rm(sobjs, so_raw)
+
+```
+
+```{r "clustify types", eval = create_so}
+
+# Classify broad cell types
+type_clsts %>%
+  iwalk(~ {
+    so <<- so %>%
+      mutate_meta(dplyr::select, -UMAP_1, -UMAP_2) %>%
+      clustify(
+        ref_mat       = ref_immgen,
+        cluster_col   = .x$clst,
+        rename_prefix = .x$type
+      )
+  })
+
+# Set broad cell types
+type_clmn <- as.character(params$type_res)
+type_clmn <- type_clsts[[type_clmn]]$type
+type_clmn <- str_c(type_clmn, "_type")
+
+so <- so %>%
+  mutate_meta(
+    mutate,
+    cell_type = str_remove(!!sym(type_clmn), " \\(.+$"),
+    
+    ## STROMAL CELL LABEL ##
+    cell_type = recode(cell_type, "Stromal cells" = str_c(cell_type, " (DN)")),
+    
+    cell_type_clst = if_else(
+      cell_type == "unassigned",
+      str_c(cell_type, "-", !!sym(type_clst_clmn)),
+      cell_type
+    )
+  )
+
+# Classify endothelial cells
+endo_feats <- list(`Endothelial cells` = c("Cdh5", "Emcn"))
+
+so <- so %>%
+  classify_mod_score(
+    feats    = endo_feats,
+    cutoff   = 0.5,
+    prefix   = "endo",
+    clst_col = type_clst_clmn,
+    type_col = "cell_type"
+  )
+
+# Classify muscle cells
+muscl_feats <- list(`Skeletal muscle` = c("Tnni1", "Tnni2", "Ttn"))
+
+so <- so %>%
+  classify_mod_score(
+    feats    = muscl_feats,
+    cutoff   = 1,
+    prefix   = "muscle",
+    clst_col = type_clst_clmn,
+    type_col = "cell_type"
+  )
+
+# Classify muscle satellite cells
+muscl_feats <- list(`Skeletal muscle` = c("Pax7", "Myf5", "Des"))
+
+so <- so %>%
+  classify_mod_score(
+    feats    = muscl_feats,
+    cutoff   = 0.75,
+    prefix   = "sat",
+    clst_col = type_clst_clmn,
+    type_col = "cell_type"
+  )
+
+# Adjust T cell label
+so <- so %>%
+  mutate_meta(
+    mutate,
+    cell_type = recode(cell_type, Tgd = "T cells")
+  )
+
+```
+
+```{r "macrophage object", eval = create_so}
+
+# Subset macrophages
+so_mac <- so %>%
+  subset_sobj(
+    cell_type == "Macrophages",
+    var_p        = 0.001,
+    dims         = 1:50,
+    regress_vars = "pct_mito",
+    rsln         = c(0.5, 1, 2)
+  )
+
+# Clustify macrophages
+so_mac <- so_mac %>%
+  mutate_meta(dplyr::select, -starts_with("UMAP")) %>%
+  clustify(
+    ref_mat = ref_immgen,
+    cluster_col = mac_clst_clmn
+  )
+
+```
+
+```{r "further adjust cell types", eval = FALSE}
+
+# COULD RUN THIS AFTER CREATING ALL SUBSETTED OBJECTS
+
+# Adjust cell types to label unassigned cells that were filtered from
+# subsetted objects
+so <- so %>%
+  mutate_meta(
+    mutate,
+    cell_type = if_else(
+      cell_type == "Fibroblasts" & !.cell_id %in% colnames(so_fib_int),
+      "unassigned",
+      cell_type
+    )
+  )
+
+```
+
+```{r "save objects", eval = create_so}
+
+# Save Seurat objects
+save_objs(so, ob_dir = so_dir)
+save_objs(so_mac, ob_dir = so_dir)
+
+```
+
+```{r "load objects"}
+
+# Load Seurat objects
+so <- read_rds(here(so_dir, "so.rds"))
+
+so_df <- so@meta.data %>%
+  as_tibble(rownames = "cell_id")
+
+# Load raw meta.data
+so_raw_df <- read_tsv(here(so_dir, "so_raw.tsv.gz"))
+
+# Load macrophage object
+so_mac <- read_rds(here(so_dir, "so_mac.rds"))
+
+so_mac_df <- so_mac@meta.data %>%
+  as_tibble(rownames = "cell_id")
+
+```
+
+```{r "add enriched CHIKV counts", eval = create_enr_so && params$enr_dir != ""}
+
+# Enriched samples
+enr_sams <- params$enr_samples
+enr_sams <- enr_sams %||% params$samples
+
+enr_sams <- set_names(
+  params$samples,
+  enr_sams
+)
+
+# Create Seurat object for CHIKV-enriched data
+mat <- names(enr_sams) %>%
+  set_names() %>%
+  map_chr(~ here(enr_dir, .x, "outs/filtered_feature_bc_matrix"))
+
+so_enr <- mat %>%
+  imap(~ {
+    .x %>%
+      create_virus_obj(
+        proj_name   = .y,
+        gene_min    = -Inf,
+        gene_max    = Inf,
+        mito_max    = Inf,
+        virus_str   = "^CHIKV",
+        virus_assay = "CHIKV"
+      )
+  })
+
+so_enr <- merge(so_enr[[1]], so_enr[-1])
+
+# Add new CHIKV counts to meta.data from unfiltered Seurat objects
+chikv_feats <- c(
+  "5"            = "chikv_CHIKV-AF15561-5",
+  "sgRNA"        = "chikv_CHIKV-AF15561-sgRNA",
+  "neg"          = "chikv_CHIKV-AF15561-neg",
+  "nCount_CHIKV" = "nCount_CHIKV",
+  "pct_CHIKV"    = "pct_CHIKV",
+  "nCount_RNA"   = "nCount_RNA"
+)
+
+get_feats <- c("orig.ident", chikv_feats)
+
+so_enr_df <- so_enr %>%
+  FetchData(get_feats) %>%
+  dplyr::rename(!!!chikv_feats) %>%
+  rename_with(~ str_c("enr_", .x), .cols = all_of(names(chikv_feats))) %>%
+  rownames_to_column("cell_id") %>%
+  mutate(orig.ident = enr_sams[orig.ident])
+
+so_enr_df <- so_raw_df %>%
+  full_join(so_enr_df, by = c("cell_id", "orig.ident"))
+
+clmns <- c(
+  "cell_id",   "orig.ident",
+  "UMAP_1",    "UMAP_2",
+  "cell_type", "lec_type",
+  "fib_type"
+)
+
+so_enr_df <- so@meta.data %>%
+  as_tibble(rownames = "cell_id") %>%
+  dplyr::select(any_of(clmns)) %>%
+  full_join(so_enr_df, by = c("cell_id", "orig.ident")) %>%
+  dplyr::rename_with(
+    .cols = starts_with("CHIKV"),
+    ~ str_remove(.x, "_AF15561")
+  )
+
+# Format enriched counts
+enr_counts <- so_enr_df %>%
+  mutate(
+    across(starts_with("enr_"), replace_na, 0),
+    tot_nCount_CHIKV = nCount_CHIKV + enr_nCount_CHIKV,
+    tot_nCount_RNA   = nCount_RNA + enr_nCount_RNA,
+    tot_pct_CHIKV    = (tot_nCount_CHIKV / tot_nCount_RNA) * 100,
+    
+    tot_5     = CHIKV_5 + enr_5,
+    tot_sgRNA = CHIKV_sgRNA + enr_sgRNA,
+    tot_neg   = CHIKV_neg   + enr_neg
+  ) %>%
+  dplyr::select(cell_id, starts_with("tot")) %>%
+  column_to_rownames("cell_id")
+
+# Add enriched counts to object
+so <- so %>%
+  AddMetaData(enr_counts)
+
+so_df <- so@meta.data %>%
+  as_tibble(rownames = "cell_id")
+
+# Add enriched counts to Mac object
+so_mac <- so_mac %>%
+  AddMetaData(enr_counts)
+
+so_mac_df <- so_mac@meta.data %>%
+  as_tibble(rownames = "cell_id")
+
+# Save enriched objects
+save_objs(so)
+save_objs(so_mac)
+save_objs(so_enr)
+
+# Save data.frame with enriched counts
+# this includes cells not present in the original object
+so_enr_df %>%
+  write_tsv(here(so_dir, "so_enr.tsv.gz"))
+
+```
+
+```{r "load enriched objects", eval = params$enr_dir != ""}
+
+# Load enriched meta.data
+so_enr_df <- read_tsv(here(so_dir, "so_enr.tsv.gz"))
+
+```
+
+```{r "sample labels"}
+
+# Sample levels
+n_rep <- n_distinct(so$rep)
+
+tms <- c(params$tm, names(params$other_tms)) %>%
+  unique()
+
+treats <- unique(so$treatment)
+
+sam_lvls <- so_raw_df %>%
+  mutate(
+    treatment = fct_relevel(treatment, unique(treats)),
+    tm        = fct_relevel(tm, tms)
+  ) %>%
+  arrange(treatment, tm) %>%
+  dplyr::select(tm, sample, orig.ident) %>%
+  distinct()
+
+sam_lvls <- set_names(sam_lvls$sample, sam_lvls$orig.ident)
+
+```
+
+
+
+
+
+```{r "TYPE TEST", eval = FALSE}
+
+so_type <- so %>%
+  mutate_meta(dplyr::select, -UMAP_1, -UMAP_2) %>%
+  clustify(
+    # ref_mat   = ref_tabula_muris_drop,
+    ref_mat     = ref_lec,
+    cluster_col = "RNA_snn_res.3.6",
+    threshold = 0.5
+  )
+
+```
+
+```{r "NBumi TEST", eval = FALSE}
+
+# Seurat
+var_genes <- so %>%
+  FindVariableFeatures(
+    selection.method = "disp",
+    nfeatures = 2000
+  ) %>%
+  VariableFeatures()
+
+
+
+# M3Drop
+counts <- so %>%
+  GetAssayData(
+    slot  = "counts",
+    assay = "RNA"
+  ) %>%
+  M3DropConvertData(
+    is.log    = FALSE,
+    is.counts = TRUE
+  )
+
+m3_genes <- counts %>%
+  M3DropFeatureSelection(
+    mt_threshold  = 0.001,
+    suppress.plot = FALSE
+  )
+
+
+
+# NBumi
+counts <- so %>%
+  GetAssayData(
+    slot  = "counts",
+    assay = "RNA"
+  ) %>%
+  NBumiConvertData(
+    is.log    = FALSE,
+    is.counts = TRUE
+  )
+
+nb_fit <- NBumiFitModel(counts)
+stats  <- NBumiCheckFitFS(counts, nb_fit)
+
+nb_genes <- nb_fit %>%
+  NBumiFeatureSelectionCombinedDrop(
+    ntop = 2000,
+    suppress.plot = FALSE
+  )
+
+```
