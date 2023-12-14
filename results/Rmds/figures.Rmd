@@ -1,0 +1,1518 @@
+---
+title:  "CHIKV 28dpi scRNA-seq"
+author: "Ryan Sheridan"
+date:   "`r Sys.Date()`"
+output: 
+  html_document:
+    toc:       true
+    toc_float: true
+    toc_depth: 3
+    theme:     cosmo
+    highlight: kate
+params:
+  
+  unenr_dir:    "results/2021-11-05"      # Directory containing unenriched data
+  enr_dir:      "results/2022-02-03"      # Directory containing CHIKV-enriched data
+  template_dir: "src"                     # Directory containing Rmd templates
+  table_dir:    "tables"                  # Directory to write tables
+  overwrite:    false                     # Should tables be overwritten if they already exist?
+  so_dir:       "~/Dropbox/Ryan/Projects" # Directory to write Seurat objects
+  metrics:      "count_metrics.csv"       # Cell Ranger metrics
+  gene_min:     250                       # Min number of detected genes per cell
+  gene_max:     5500                      # Max number of detected genes per cell
+  mito_max:     30                        # Max percentage mito reads per cells
+  rm_doublets:  true                      # Should doublets be removed using DoubletFinder?
+  type_res:     5                         # Clustering resolution for annotating cell types
+  mac_res:      1                         # Clustering resolution for annotating macrophages
+  lec_res:      5                         # Clustering resolution for annotating LECs
+  fib_res:      5                         # Clustering resolution for annotating fibroblasts/stromal cells
+  tm:           "28dpi"                   # Label for time point
+  samples:
+    - "U1"
+    - "U2"
+    - "U3"
+    - "C1"
+    - "C2"
+    - "C3"
+editor_options: 
+  chunk_output_type: console
+---
+
+<br>
+
+```{r "setup", include = FALSE}
+
+# Default chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  echo    = FALSE,
+  dpi     = 300
+)
+
+# Adjust directory paths based on user input
+enr_dir   <- params$enr_dir
+unenr_dir <- params$unenr_dir
+
+if (enr_dir == "") enr_dir <- unenr_dir
+
+knitr::knit(here::here("src/setup.Rmd"), output = "")
+
+other_pkgs <- c(
+  "clusterProfiler",
+  "enrichplot",
+  "msigdbr",
+  "DOSE",
+  "biomaRt",
+  "org.Mm.eg.db",
+  "qs"
+)
+
+purrr::walk(other_pkgs, library, character.only = TRUE)
+
+# Load objects
+create_so <- !file.exists(file.path(so_dir, "so_int.qs"))
+
+```
+
+```{r "culemann gene lists"}
+
+# Gene lists from Culemann et al.
+culemann_genes <- list(
+  mock  = here("ref/2019_Culemann/table_s1.txt"),
+  CHIKV = here("ref/2019_Culemann/table_s2.txt")
+)
+
+culemann_genes <- culemann_genes %>%
+  map(~ {
+    read_delim(
+      file   = .x,
+      delim  = " ",
+      locale = locale(decimal_mark = ",")
+    )
+  })
+
+feat_key <- list(
+  mock = c(
+    "0" = "AQP1_interstitial",
+    "2" = "RELMa_interstitial",
+    "3" = "CX3CR1_lining",
+    "1" = "MHCII_interstitial",
+    "4" = "STMN1_proliferating",  # weak non-specific signal
+    "5" = "ACP5_osteoclast"
+  ),
+  CHIKV = c(
+    "1" = "CX3CR1_lining",
+    "2" = "RELMa_interstitial",
+    "0" = "CCR2_IL1B_infiltrating",
+    "4" = "CCR2_ARG1_infiltrating",
+    "3" = "MHCII_interstitial",
+    "6" = "STMN1_proliferating",
+    "5" = "MHCII_DCs"
+  )
+)
+
+culemann_genes <- culemann_genes %>%
+  imap(~ {
+    .x %>%
+      mutate(cluster = feat_key[[.y]][as.character(cluster)])
+  })
+
+feat_key <- list(
+  mock  = unname(feat_key$mock[1:3]),
+  CHIKV = unname(grep("infiltrating$", feat_key$CHIKV, value = TRUE))
+)
+
+feat_lvls <- unlist(feat_key, use.names = FALSE)
+
+
+
+# plt_feats <- feats %>%
+#   imap(~ c(.y, .x))
+
+# data.frame of features that can be used with clustifyr
+# feats_df <- tibble(feats, key = names(feats)) %>%
+#   unnest(feats) %>%
+#   group_by(key) %>%
+#   mutate(idx = row_number()) %>%
+#   ungroup() %>%
+#   pivot_wider(
+#     names_from = key,
+#     values_from = feats,
+#     values_fill = NA
+#   ) %>%
+#   dplyr::select(-idx)
+
+### MEAN SIGNAL TEST ###
+# See only minor differences when compared with module scores
+# and signals show similar trends
+#
+# mn_signal <- feats %>%
+#   imap(~ {
+#     so_int %>%
+#       FetchData(c("sample", "cell_type", .x)) %>%
+#       as_tibble(rownames = ".cell_id") %>%
+#       pivot_longer(any_of(.x)) %>%
+#       group_by(.cell_id) %>%
+#       summarize(!!sym(.y) := mean(value))
+#   }) %>%
+#   reduce(left_join, by = ".cell_id") %>%
+#   column_to_rownames(".cell_id")
+# 
+# x <- so_int %>%
+#   AddMetaData(mn_signal)
+# 
+# names(feats) %>%
+#   map(~ {
+#     x %>%
+#       plot_features(
+#         feature     = .x,
+#         plot_colors = c("blue", "white", "red"),
+#         size        = 0.5
+#       ) +
+#       theme(aspect.ratio = 0.9)
+#   }) %>%
+#   plot_grid(
+#     plotlist = .,
+#     align    = "vh",
+#     axis     = "trbl"
+#   )
+# 
+# so_int@meta.data %>%
+#   pivot_longer(all_of(names(feats))) %>%
+#   ggplot(aes(mac_type, value, fill = mac_type)) +
+#   geom_boxplot() +
+#   facet_wrap(~ name, scales = "free_y")
+
+# x <- so_treats %>%
+#   imap(~ {
+#     fts   <- feats[[.y]]
+#     lvls  <- names(fts)
+#     clmns <- set_names(str_c(lvls, seq_along(lvls)), lvls)
+#     
+#     .x %>%
+#       mutate_meta(dplyr::select, -any_of(lvls)) %>%
+#       AddModuleScore(
+#         fts,
+#         name = lvls,
+#         seed = 42,
+#         ctrl = 35
+#       ) %>%
+#       mutate_meta(rename, !!!syms(clmns))
+#   })
+# 
+# names(feats$CHIKV) %>%
+#   map(~ {
+#     x$CHIKV %>%
+#       # subset(treatment == "CHIKV") %>%
+#       plot_features(feature = .x, size = 0.5) +
+#       facet_wrap(~ treatment) +
+#       theme(aspect.ratio = 1)
+#   }) %>%
+#   plot_grid(plotlist = .)
+# 
+# Fraction CHIKV
+# x$CHIKV@meta.data %>%
+#   group_by(!!sym(int_clst_clmn)) %>%
+#   mutate(frac_chikv = length(treatment[treatment == "CHIKV"]) / n()) %>%
+#   plot_features(feature = "frac_chikv")
+
+```
+
+```{r "theme"}
+
+# ggplot2 themes
+txt_pt1  <- 10
+txt_pt2  <- 12
+ttl_pt1  <- 14
+ttl_pt2  <- 16
+ln_pt    <- 0.5
+ln_col   <- "grey85"
+cir_size <- 3.5
+sqr_size <- 4
+
+txt_theme_1 <- theme(
+  strip.text  = element_text(size = ttl_pt1),
+  legend.text = element_text(size = txt_pt1),
+  axis.title  = element_text(size = txt_pt2),
+  axis.text   = element_text(size = txt_pt1)
+)
+
+line_theme <- theme(
+  axis.line.x  = element_line(size = ln_pt, color = ln_col),
+  axis.line.y  = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.x = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.y = element_line(size = ln_pt, color = ln_col)
+)
+
+base_theme <- theme_cowplot() +
+  theme(
+    plot.title       = element_text(face = "plain", size = ttl_pt2),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "plain")
+  ) +
+  txt_theme_1 +
+  line_theme
+
+umap_theme <- base_theme +
+  theme(
+    axis.title   = element_blank(),
+    axis.line.x  = element_blank(),
+    axis.line.y  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text    = element_blank(),
+    aspect.ratio = 0.9
+  )
+
+box_theme <- base_theme +
+  theme(
+    legend.position = "none",
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    panel.border    = element_rect(fill = NA, color = ln_col, size = ln_pt),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    axis.title.x    = element_blank()
+  )
+
+fade_0 <- "#FAFAFA"
+fade_1 <- "#F0F0F0"
+fade_2 <- "#D9D9D9"
+
+hist_y_lab <- "number of cells"
+
+# alpha for plots
+al <- 0.7
+
+# Okabe Ito color palettes
+ito_cols <- c(
+  palette_OkabeIto[c(1:3, 5)], "#D7301F",
+  palette_OkabeIto[c(4, 6)],   "#6A51A3",
+  palette_OkabeIto[7],         "#875C04",
+  "#065D43", "#FFD6AD", "#00446E"
+)
+
+ito_cols <- ito_cols[3:length(ito_cols)] %>%
+  darken(0.2) %>%
+  c(ito_cols, ., "#686868", "#000000")
+
+# Set sample colors
+get_cols <- create_col_fun(ito_cols)
+
+sam_cols <- c(
+  "#00446E", "#0072B2", "#56B4E9",
+  "#d7301f", "#D55E00", "#E69F00"
+)
+
+names(sam_cols) <- sam_lvls[params$samples]
+
+# CHIKV treatment groups
+chikv_infctd <- so_df %>%
+  group_by(treatment) %>%
+  summarize(mn = mean(nCount_CHIKV), .groups = "drop") %>%
+  dplyr::filter(mn == max(mn)) %>%
+  pull(treatment)
+
+# Cell type colors
+type_cols <- unique(so_df$cell_type)
+type_cols <- set_names(ito_cols[seq_along(type_cols)], type_cols)
+
+type_cols["unassigned"] <- "#999999"
+
+subtype_cols <- c(colnames(ref_lec), colnames(ref_fib))
+subtype_cols <- set_names(ito_cols[seq_along(subtype_cols)], subtype_cols)
+subtype_cols["unassigned"] <- "#999999"
+subtype_cols["other"]      <- fade_0
+
+# CHIKV clusters colors
+grp_cols <- set_names(
+  c("#56B4E9", "#0072B2"),
+  chikv_grps
+)
+
+grp_rep_cols <- grp_cols %>% 
+  imap(~ set_names(
+    rep(.x, n_rep),
+    str_c(.y, "-", 1:n_rep)
+  )) %>%
+  flatten_chr()
+
+# CHIKV cell type colors
+n_high <- so_df %>%
+  dplyr::filter(chikv_grp == chikv_grps[2]) %>%
+  nrow()
+
+chikv_type_cols <- unique(so_df$cell_type)
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% names(subtype_cols)]
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% c(lec_cell_types, fib_cell_types)]
+
+avail_cols <- ito_cols[!ito_cols %in% subtype_cols]
+
+chikv_type_cols <- set_names(
+  avail_cols[seq_along(chikv_type_cols)],
+  chikv_type_cols
+)
+
+chikv_type_cols <- c(subtype_cols, chikv_type_cols)
+
+chikv_type_cols[chikv_grps[1]] <- fade_2
+
+# Macrophage cluster colors
+mac_clst_cols <- so_mac[[mac_clst_clmn]] %>%
+  pull(mac_clst_clmn) %>%
+  unique() %>%
+  as.numeric() %>%
+  sort() %>%
+  as.character()
+
+mac_clst_cols <- set_names(
+  ito_cols[seq_along(mac_clst_cols)],
+  mac_clst_cols
+)
+
+# UMAP themes
+mac_u_theme <- umap_theme +
+  theme(
+    aspect.ratio         = 0.7,
+    legend.position      = "bottom",
+    legend.justification = "center",
+    legend.title         = element_blank()
+  )
+
+int_u_theme <- mac_u_theme +
+  theme(aspect.ratio = 1)
+
+# Mac subset colors
+mac_typ_cols <- feat_lvls[!grepl("infiltrating$", feat_lvls)]
+
+mac_typ_cols <- set_names(
+  ito_cols[seq_along(mac_typ_cols)],
+  mac_typ_cols
+)
+
+mac_typ_cols["infiltrating"] <- "#0072B2"
+
+# New labels for Mac subsets
+mac_typ_labs <- names(mac_typ_cols)
+  # str_replace("_interstitial", "+") %>%
+  # str_replace("infiltrating", "Inflammatory") %>%
+  # str_replace(".+_lining", "Lining")
+
+mac_typ_labs <- set_names(mac_typ_labs, names(mac_typ_cols))
+
+names(mac_typ_cols) <- mac_typ_labs[names(mac_typ_cols)]
+
+mac_typ_cols_2 <- mac_typ_cols
+mac_typ_cols_2["unassigned"] <- "grey75"
+
+```
+
+```{r "functions"}
+
+plot_examples <- function(so_in, gns, split = NULL, thm = NULL,
+                          clrs = c("#56B4E9", "white", "red")) {
+  gns %>%
+    map(~ {
+      res <- so_in %>%
+        FetchData(c("UMAP_1", "UMAP_2", split, .x)) %>%
+        arrange(!!sym(.x)) %>%
+        
+        ggplot(aes(UMAP_1, UMAP_2, fill = !!sym(.x))) +
+        geom_point_trace(size = 0.7, stroke = 0.5) +
+        scale_fill_gradientn(colours = clrs) +
+        guides(fill = guide_colorbar(ticks = FALSE, barheight = unit(150, "pt"))) +
+        ggtitle(.x)
+      
+      if (!is.null(thm)) res <- res + thm
+      
+      if (!is.null(split)) {
+        res <- res +
+          facet_wrap(as.formula(str_c("~ ", split)))
+      }
+      
+      res +
+        theme(
+          plot.title      = element_text(hjust = 0.5, size = 24),
+          legend.position = "right"
+        )
+    })
+}
+
+#' Fetch genes for the provided annotations
+fetch_genes <- function(terms, mart) {
+  att  <- c("ensembl_gene_id", "external_gene_name")
+  names(terms) <- names(terms) %||% rep("go_parent_name", length(terms))
+  names(terms)[names(terms) == ""] <- "go_parent_name"
+  
+  res <- terms %>%
+    imap(~ {
+      getBM(
+        attributes = att,
+        filters    = .y,
+        values     = .x,
+        mart       = mart
+      ) %>%
+        pull(external_gene_name)
+    }) %>%
+    reduce(c) %>%
+    unique()
+  
+  res
+}
+
+```
+
+```{r "load mac and t objects"}
+
+so_int   <- qread(file.path(so_dir, "so_int.qs"))
+so_t_int <- qread(file.path(so_dir, "so_t_int.qs"))
+
+# FOR NOW REMOVE CLUSTER 8, UNCLEAR IF THESE ARE T CELLS
+so_t_int <- so_t_int %>%
+  subset(integrated_snn_res.1 != "8")
+
+so_t_int <- so_t_int %>%
+  mutate_meta(
+    mutate,
+    cd4_8 = str_extract(t_type, "^CD[48]"),
+    cd4_8 = ifelse(t_type == "Treg", "CD4", cd4_8)
+  )
+
+# Format culemann gene lists
+# Cx3cr1 is tagged with TdTomato
+feats <- culemann_genes %>%
+  imap(~ {
+    fts <- .x %>%
+      dplyr::select(gene, cluster) %>%
+      split(.$cluster) %>%
+      map(pull, gene)
+    
+    fts <- fts[names(fts) %in% feat_key[[.y]]]
+    fts <- fts[feat_key[[.y]]]
+    
+    fts %>%
+      map(~ {
+        .x[.x == "TdTomato"] <- "Cx3cr1"
+        .x[.x %in% VariableFeatures(so_int)]
+      })
+  }) %>%
+  flatten()
+
+so_int@active.assay <- "RNA"
+
+```
+
+```{r "mac DEGs"}
+
+# CHIKV+ clusters DEGS
+# For GSEA save list that includes fold changes for all genes regardless of
+# significance
+Idents(so_int) <- so_int$chikv_clst_grp
+
+clst_deg_file <- here("results", params$table_dir, "mac_chikv-high_degs.tsv")
+
+if (!file.exists(clst_deg_file)) {
+  clst_degs <- so_int %>%
+    subset(treatment == treats[2]) %>%
+    FindConservedMarkers(
+      ident.1 = chikv_grps[2],
+      grouping.var = "rep",
+      logfc.threshold = 0.1
+    ) %>%
+    as_tibble(rownames = "gene")
+  
+  fc_clmns <- grep("_avg_log2FC$", colnames(clst_degs), value = TRUE)
+  
+  clst_degs <- clst_degs %>%
+    rowwise() %>%
+    mutate(
+      min_FC = min(abs(c(!!!syms(fc_clmns)))),
+      min_FC = c(!!!syms(fc_clmns))[abs(c(!!!syms(fc_clmns))) == min_FC]
+    ) %>%
+    ungroup() %>%
+    arrange(desc(min_FC))
+  
+  clst_degs %>%
+    write_tsv(clst_deg_file)
+  
+} else {
+  clst_degs <- read_tsv(clst_deg_file)
+}
+
+# CHIKV-infected DEGS
+Idents(so_int) <- so_int$treatment
+
+chikv_deg_file <- here("results", params$table_dir, "mac_chikv_degs.tsv")
+
+if (!file.exists(chikv_deg_file)) {
+  chikv_degs <- so_int %>%
+    FindConservedMarkers(
+      ident.1 = treats[2],
+      grouping.var = "rep",
+      logfc.threshold = 0.1
+    ) %>%
+    as_tibble(rownames = "gene")
+  
+  fc_clmns <- grep("_avg_log2FC$", colnames(chikv_degs), value = TRUE)
+  
+  chikv_degs <- chikv_degs %>%
+    rowwise() %>%
+    mutate(
+      min_FC = min(abs(c(!!!syms(fc_clmns)))),
+      min_FC = c(!!!syms(fc_clmns))[abs(c(!!!syms(fc_clmns))) == min_FC]
+    ) %>%
+    ungroup() %>%
+    arrange(desc(min_FC))
+  
+  chikv_degs %>%
+    write_tsv(chikv_deg_file)
+  
+} else {
+  chikv_degs <- read_tsv(chikv_deg_file)
+}
+
+```
+
+```{r "mac GSEA"}
+
+# Get human homologs
+h_mart <- useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
+m_mart <- useEnsembl("ensembl", dataset = "mmusculus_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
+
+hlogs <- getLDS(
+  filters     = "external_gene_name",
+  values      = unique(clst_degs$gene, chikv_degs$gene),
+  attributes  = c("external_gene_name", "entrezgene_id"),
+  attributesL = c("external_gene_name", "entrezgene_id"),
+  mart        = h_mart,
+  martL       = m_mart
+) %>%
+  rename_with(.cols = ends_with(".1"),       ~ str_replace(.x, ".1$", "_mm")) %>%
+  rename_with(.cols = matches("^Gene.name"), ~ str_replace(.x, "^[^_]+", "gene")) %>%
+  rename_with(.cols = matches("^NCBI"),      ~ str_replace(.x, "^[^_]+", "entrez"))
+
+# Macrophage CHIKV-high DEGs
+# GSEA analysis using DOSE database
+# need to fetch entrez gene IDs for human homologs
+# remove duplicate gene IDs
+gsea_degs <- clst_degs %>%
+  arrange(desc(min_FC)) %>%
+  left_join(hlogs, by = c(gene = "gene_mm")) %>%
+  dplyr::filter(!is.na(entrez)) %>%
+  distinct(gene, entrez, min_FC) %>%
+  group_by(entrez) %>%
+  dplyr::filter(n() == 1) %>% 
+  arrange(desc(min_FC))
+
+gsea_file <- here("results", params$table_dir, "mac_chikv-high_gsea.qs")
+
+if (!file.exists(gsea_file)) {
+  set.seed(42)
+  
+  gsea_res <- set_names(gsea_degs$min_FC, gsea_degs$entrez)
+  
+  clst_gsea <- gsea_res %>%
+    gseDO(eps = 1e-100) %>%
+    setReadable("org.Hs.eg.db", "ENTREZID")
+  
+  clst_gsea %>%
+    qsave(gsea_file)
+  
+} else {
+  clst_gsea <- qread(gsea_file)
+}
+
+# Macrophage CHIKV vs mock-infected DEGs
+# GSEA analysis using DOSE database
+# need to fetch entrez gene IDs for human homologs
+# remove duplicate gene IDs
+gsea_degs <- chikv_degs %>%
+  arrange(desc(min_FC)) %>%
+  left_join(hlogs, by = c(gene = "gene_mm")) %>%
+  dplyr::filter(!is.na(entrez)) %>%
+  distinct(gene, entrez, min_FC) %>%
+  group_by(entrez) %>%
+  dplyr::filter(n() == 1) %>% 
+  arrange(desc(min_FC))
+
+gsea_file <- here("results", params$table_dir, "mac_chikv_gsea.qs")
+
+if (!file.exists(gsea_file)) {
+  set.seed(42)
+  
+  gsea_res <- set_names(gsea_degs$min_FC, gsea_degs$entrez)
+  
+  chikv_gsea <- gsea_res %>%
+    gseDO(eps = 1e-100) %>%
+    setReadable("org.Hs.eg.db", "ENTREZID")
+  
+  chikv_gsea %>%
+    qsave(gsea_file)
+  
+} else {
+  chikv_gsea <- qread(gsea_file)
+}
+
+```
+
+```{r "t cell type markers"}
+
+file_path <- here("results", params$table_dir, "t_type_markers.tsv")
+
+# Fibroblast type markers
+# DO NOT FILTER FOR MOCK CELLS
+if (!file.exists(file_path)) {
+  Idents(so_t_int) <- so_t_int$t_type
+  
+  t_type_markers <- t_types %>%
+    map_dfr(~ {
+      so_t_int %>%
+        FindConservedMarkers(
+          ident.1 = .x,
+          grouping.var = "rep"
+        ) %>%
+        rownames_to_column("gene") %>%
+        mutate(cluster = .x)
+    }, .options = furrr_options(seed = TRUE))
+  
+  # Filter marker genes
+  # fold change > 1.25, pct > 0.3
+  reps <- unique(so_t_int$rep)
+  
+  stat_clmns <- list(
+    fc   = str_c(reps, "_avg_log2FC"),
+    pct1 = str_c(reps, "_pct.1"),
+    pct2 = str_c(reps, "_pct.2")
+  )
+  
+  t_type_markers <- t_type_markers %>%
+    filter(
+      max_pval < 0.05,
+      if_all(all_of(stat_clmns$fc),   ~ .x > log2(1.25)),
+      if_all(all_of(stat_clmns$pct1), ~ .x > 0.25),
+      if_all(all_of(stat_clmns$pct2), ~ .x < 0.6)
+    ) %>%
+    arrange(cluster, max_pval)
+  
+  # GO terms
+  # term size > 10, < 400
+  expr_gns <- so_t_int@assays$RNA@counts %>%
+    rowSums() %>%
+    sort(decreasing = TRUE) %>%
+    head(5000)
+  
+  t_type_go <- t_type_markers %>%
+    split(.$cluster) %>%
+    map(pull, gene) %>%
+    gost(
+      organism     = "mmusculus",
+      custom_bg    = names(expr_gns),
+      domain_scope = "custom",
+      evcodes      = TRUE
+    ) %>%
+    .$result %>%
+    dplyr::select(-c(evidence_codes, parents)) %>%
+    arrange(query, p_value)
+  
+  # Save markers
+  t_type_markers %>%
+    write_tsv(file_path)
+  
+  t_type_go %>%
+    write_tsv(here(table_dir, "t_type_go.tsv"))
+}
+
+# Load marker genes
+t_type_markers <- read_tsv(file_path)
+
+t_type_go <- read_tsv(here("results", params$table_dir, "t_type_go.tsv"))
+
+t_type_go <- t_type_go %>%
+  separate_rows(intersection, sep = ",") %>%
+  nest(intersection = intersection) %>%
+  filter(term_size > 10, term_size < 500, intersection_size > 4)
+
+```
+
+```{r "t DEGs"}
+
+# CHIKV-infected DEGs for all T cells grouped together
+Idents(so_t_int) <- so_t_int$treatment
+
+chikv_deg_file <- here("results", params$table_dir, "t_all_chikv_degs.tsv")
+
+if (!file.exists(chikv_deg_file)) {
+  t_all_degs <- so_t_int %>%
+    FindConservedMarkers(
+      ident.1 = treats[2],
+      grouping.var = "rep",
+      logfc.threshold = 0.1
+    ) %>%
+    as_tibble(rownames = "gene")
+  
+  fc_clmns <- grep("_avg_log2FC$", colnames(t_all_degs), value = TRUE)
+
+  t_all_degs <- t_all_degs %>%
+    rowwise() %>%
+    mutate(
+      min_FC = min(abs(c(!!!syms(fc_clmns)))),
+      min_FC = c(!!!syms(fc_clmns))[abs(c(!!!syms(fc_clmns))) == min_FC]
+    ) %>%
+    ungroup() %>%
+    arrange(desc(min_FC))
+  
+  t_all_degs %>%
+    write_tsv(chikv_deg_file)
+  
+} else {
+  t_all_degs <- read_tsv(chikv_deg_file)
+}
+
+# CHIKV-infected DEGs for all T cells grouped together
+# do not use replicates since we have so few T cells
+Idents(so_t_int) <- so_t_int$treatment
+
+chikv_deg_file <- here("results", params$table_dir, "t_chikv_degs.tsv")
+
+if (!file.exists(chikv_deg_file)) {
+  t_degs <- c("CD4", "CD8") %>%
+    map_dfr(~ {
+      so_t_int %>%
+        subset(cd4_8 == .x) %>%
+        FindMarkers(
+          ident.1 = treats[2],
+          ident.2 = treats[1],
+          logfc.threshold = 0.25
+        ) %>%
+        # FindConservedMarkers(
+        #   ident.1 = treats[2],
+        #   grouping.var = "rep",
+        #   logfc.threshold = 0.1
+        # ) %>%
+        as_tibble(rownames = "gene") %>%
+        mutate(cd4_8 = .x)
+    })
+  
+  # fc_clmns <- grep("_avg_log2FC$", colnames(t_degs), value = TRUE)
+  # 
+  # t_degs <- t_degs %>%
+  #   rowwise() %>%
+  #   mutate(
+  #     min_FC = min(abs(c(!!!syms(fc_clmns)))),
+  #     min_FC = c(!!!syms(fc_clmns))[abs(c(!!!syms(fc_clmns))) == min_FC]
+  #   ) %>%
+  #   ungroup() %>%
+  #   arrange(desc(min_FC))
+  
+  t_degs %>%
+    write_tsv(chikv_deg_file)
+  
+} else {
+  t_degs <- read_tsv(chikv_deg_file)
+}
+
+# CHIKV-infected DEGs for each subset
+Idents(so_t_int) <- so_t_int$treatment
+
+chikv_deg_file <- here("results", params$table_dir, "t_type_chikv_degs.tsv")
+
+if (!file.exists(chikv_deg_file)) {
+  typs <- unique(so_t_int$t_type)
+  
+  t_typ_degs <- typs %>%
+    map_dfr(~ {
+      so_t_int %>%
+        subset(t_type == .x) %>%
+        FindMarkers(
+          ident.1 = treats[2],
+          ident.2 = treats[1],
+          logfc.threshold = 0.25
+        ) %>%
+        # FindConservedMarkers(
+        #   ident.1 = treats[2],
+        #   grouping.var = "rep",
+        #   logfc.threshold = 0.1
+        # ) %>%
+        as_tibble(rownames = "gene") %>%
+        mutate(t_type = .x)
+    })
+  
+  t_typ_degs %>%
+    write_tsv(chikv_deg_file)
+  
+} else {
+  t_typ_degs <- read_tsv(chikv_deg_file)
+}
+
+```
+
+## Macrophages {.tabset .tabset-pills}
+
+UMAP projections show macrophage subsets
+
+```{r "fig 4A", fig.width = 11.25, fig.height = 5.6}
+
+# Create mac subset UMAPs
+create_subset_umap <- function(so_in, sub_clmn, clrs) {
+  
+  sub_labs <- get_nlab_fun(so_in, sub_clmn, l = " (", r = ")")
+  
+  res <- so_in %>%
+    plot_scatter(
+      sub_clmn,
+      plot_lvls = names(clrs),
+      size = 0.7
+    ) +
+    scale_color_manual(values = clrs, labels = sub_labs) +
+    guides(color = guide_legend(
+      ncol = 1, override.aes = list(size = 3), reverse = TRUE)
+    ) +
+    int_u_theme +
+    theme(
+      plot.title  = element_text(hjust = 0.5, size = 20),
+      legend.text = element_text(size = 14)
+    )
+  
+  res
+}
+
+# Adjust mac_type labels
+so_int <- so_int %>%
+  mutate_meta(
+    mutate,
+    mac_type = replace_na(mac_type, "unassigned"),
+    mac_type = recode(mac_type, !!!mac_typ_labs)
+  )
+
+# Create mac subset UMAPs
+u <- treats %>%
+  map(~ {
+    so_int %>%
+      subset(treatment == .x) %>%
+      create_subset_umap("mac_type", mac_typ_cols_2) +
+      ggtitle(.x)
+  })
+
+# Create mac subset bargraphs
+br <- so_int@meta.data %>%
+  mutate(
+    treatment = fct_relevel(treatment, treats),
+    rep = str_c("r", rep)
+  ) %>%
+  ggplot(aes(rep, fill = mac_type)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ treatment, scales = "free") +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  scale_y_continuous(expand = expansion(0)) +
+  scale_x_discrete(labels = (function(x) str_remove(x, str_c("-", params$tm)))) +
+  base_theme +
+  theme(
+    aspect.ratio    = 3,
+    legend.position = "none",
+    strip.text      = element_text(size = 20),
+    axis.title      = element_blank(),
+    axis.text.y     = element_blank(),
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    axis.ticks.x    = element_blank(),
+    axis.ticks.y    = element_blank()
+  )
+
+# Create final figure
+plot_grid(
+  plotlist = append(u, list(br)),
+  nrow  = 1,
+  align = "vh",
+  axis  = "trbl",
+  rel_widths = c(1, 1, 0.7)
+)
+
+# Boxplots showing module score for assigned subsets
+# so_int@meta.data %>%
+#   pivot_longer(all_of(feat_lvls)) %>%
+#   ggplot(aes(mac_type, value, fill = mac_type)) +
+#   geom_boxplot() +
+#   facet_wrap(~ name, scales = "free_y") +
+#   scale_fill_manual(values = mac_typ_cols) +
+#   base_theme +
+#   theme(
+#     axis.text.x     = element_text(angle = 45, hjust = 1),
+#     axis.title      = element_blank(),
+#     legend.position = "none"
+#   )
+
+```
+
+<br>
+
+Heatmap shows top upregulated genes associated with inflammatory disease for
+CHIKV vs mock-infected macrophages
+
+```{r, fig.width = 2.5, fig.height = 4, out.width = "30%"}
+
+# GSEA genes associated with bone disease
+terms_re <- c("connective", "musculoskeletal", "arthritis", "bone") %>%
+  str_c(collapse = "|")
+
+gsea_gns <- chikv_gsea@result %>%
+  dplyr::filter(
+    grepl(terms_re, Description),
+    !grepl("cancer|ischemic", Description)
+  ) %>%
+  pull(core_enrichment) %>%
+  map(str_split, "/") %>%
+  unlist() %>%
+  unique()
+
+gsea_gns <- hlogs %>%
+  dplyr::filter(gene %in% gsea_gns & gene_mm != "") %>%
+  pull(gene_mm) %>%
+  unique()
+
+# Genes to plot
+gns <- chikv_degs %>%
+  dplyr::filter(
+    max_pval < 0.05,
+    min_FC   > 0.2,
+    gene %in% gsea_gns
+  ) %>%
+  arrange(desc(min_FC)) %>%
+  pull(gene) %>%
+  head(30)
+
+# Format data
+DefaultAssay(so_int) <- "RNA"
+
+dat <- so_int %>%
+  FetchData(c("orig.ident", "treatment", "rep", "sample", "chikv_clst_grp", gns)) %>%
+  pivot_longer(all_of(gns)) %>%
+  group_by(rep, treatment, name) %>%
+  summarize(value = mean(value), .groups = "drop") %>%
+  group_by(name) %>%
+  mutate(value = scale(value)) %>%
+  ungroup() %>%
+  mutate(
+    name = fct_relevel(name, rev(gns)),
+    treatment = fct_relevel(treatment, treats)
+  )
+  
+# Create heatmap
+dat %>%
+  ggplot(aes(rep, name, fill = value)) +
+  geom_tile(color = ln_col) +
+  scale_fill_gradientn(colours = c("white", "#0072B2")) +
+  guides(fill = guide_colorbar(ticks = FALSE)) +
+  facet_wrap(~ treatment) +
+  djvdj_theme() +
+  theme(
+    strip.clip   = "off",
+    strip.text   = element_text(size = 8.5),
+    panel.border = element_blank(),
+    axis.ticks   = element_blank(),
+    legend.key.width = unit(10, "pt"),
+    legend.key.height = unit(30, "pt"),
+    axis.title   = element_blank(),
+    legend.title = element_blank(),
+    axis.text.y  = element_text(size = 8.5)
+  )
+```
+
+<br>
+
+UMAP projections show examples of upregulated genes for CHIKV vs mock-infected
+macrophages
+
+```{r, fig.width = 10, fig.height = 6.5}
+
+# gns <- c("Nlrp3", "Tlr2", "Mdm2", "Plau", "Slamf7")
+gns <- head(gns, 3)
+
+u_clrs    <- grp_cols
+u_clrs[1] <- lighten("#009E73", 0.2)
+
+names(u_clrs) <- treats
+
+gn_boxes <- gns %>%
+  map(~ {
+    d <- so_int %>%
+      FetchData(c("UMAP_1", "UMAP_2", "rep", "treatment", .x)) %>%
+      mutate(treatment = fct_relevel(treatment, treats))
+    
+    u <- d %>%
+      plot_scatter(
+        .x,
+        plot_colors = c("#56B4E9", "white", "#6A51A3"),
+        n_label = "none",
+        size    = 0.7
+      ) +
+      guides(color = guide_colorbar(title.position = "top", barheight = unit(6, "pt"), barwidth = unit(100, "pt"), ticks = FALSE)) +
+      umap_theme +
+      theme(
+        legend.position = "top",
+        legend.justification = "center",
+        legend.title = element_text(size = 20)
+      )
+    
+    bx <- d %>%
+      ggplot(aes(rep, !!sym(.x), fill = treatment)) +
+      geom_boxplot(outlier.size = 0.25) +
+      scale_fill_manual(values = u_clrs) +
+      facet_wrap(~ treatment) +
+      djvdj_theme() +
+      theme(
+        legend.position = "none",
+        panel.border    = element_blank(),
+        axis.line.y     = element_line(color = "grey85", size = 0.5),
+        axis.title      = element_blank(),
+        axis.text.x     = element_blank(),
+        axis.ticks.x    = element_blank()
+      )
+    
+    plot_grid(
+      u, bx,
+      align = "vh",
+      axis  = "trbl",
+      nrow = 1,
+      rel_widths = c(1, 0.82)
+    )
+  })
+
+plot_grid(
+  plotlist = gn_boxes,
+  align = "vh",
+  axis  = "trbl",
+  ncol  = 2
+)
+
+# gns <- gsea_res@result %>%
+#   dplyr::filter(Description == "arthritis") %>%
+#   pull(core_enrichment)
+# 
+# gns <- gns %>%
+#   str_split("/") %>%
+#   flatten() %>%
+#   as.character()
+# 
+# gns <- hlogs %>%
+#   dplyr::filter(gene %in% gns) %>%
+#   pull(gene_mm)
+
+# gns[1:16] %>%
+#   map(~ {
+#     if (!.x %in% rownames(x@assays$RNA)) return(NULL)
+#     
+#     so_int %>%
+#       FetchData(c(.x, "UMAP_1", "UMAP_2", "treatment", "chikv_clst_grp")) %>%
+#       arrange(!!sym(.x)) %>%
+#       ggplot(aes(UMAP_1, UMAP_2, color = !!sym(.x))) +
+#       geom_point(size = 0.25) +
+#       scale_color_gradientn(colours = c("blue", "white", "red")) +
+#       umap_theme
+#   }) %>%
+#   plot_grid(
+#     plotlist = .,
+#     align = "vh",
+#     axis  = "trbl"
+#   )
+
+```
+
+<br>
+
+Heatmaps show mean expression of the top 50 markers from gene lists described
+by Culemann et al. Each replicate is plotted separately for each macrophage
+subset.
+
+```{r, results = "asis", fig.height = 10, fig.width = 8}
+
+# Format culemann gene lists
+# Cx3cr1 is tagged with TdTomato
+var_feats <- rownames(so_int@assays$integrated)
+
+feats <- culemann_genes %>%
+  imap(~ {
+    fts <- .x %>%
+      dplyr::select(gene, cluster) %>%
+      split(.$cluster) %>%
+      map(pull, gene)
+    
+    fts <- fts[names(fts) %in% feat_key[[.y]]]
+    fts <- fts[feat_key[[.y]]]
+    
+    fts %>%
+      map(~ {
+        .x[.x == "TdTomato"] <- "Cx3cr1"
+        .x[.x %in% var_feats]
+      })
+  }) %>%
+  flatten()
+
+# Culemann heatmap data
+all_gns <- feats %>%
+  purrr::reduce(c) %>%
+  unique()
+
+plt_dat <- so_int %>%
+  FetchData(c("treatment", "rep", "mac_type", all_gns)) %>%
+  filter(mac_type != "unassigned") %>%
+  as_tibble(rownames = ".cell_id") %>%
+  pivot_longer(any_of(all_gns)) %>%
+  # group_by(treatment, rep, mac_type, name) %>%
+  group_by(rep, mac_type, name) %>%
+  summarize(value = mean(value), .groups = "drop") %>%
+  # group_by(name, treatment) %>%
+  group_by(name) %>%
+  mutate(value = as.numeric(scale(value))) %>%
+  ungroup()
+
+# Set list names
+rev(feats) %>%
+  iwalk(~ {
+    cat("\n\n###", .y, "\n\n")
+    
+    dat <- plt_dat %>%
+      filter(name %in% .x)
+    
+    # Sort genes plot top 50
+    typ <- ifelse(grepl("infiltrating", .y), "infiltrating", .y)
+    
+    lvls <- dat %>%
+      group_by(name, rep) %>%
+      mutate(
+        value = value + abs(min(value)),
+        fc = value[mac_type == typ] / mean(value[mac_type != typ])
+      ) %>%
+      group_by(name) %>%
+      summarize(fc = mean(fc), .groups = "drop") %>%
+      arrange(desc(fc)) %>%
+      pull(name) %>%
+      head(50)
+    
+    asp_rat <- length(lvls) / n_distinct(dat$rep)
+    
+    lab_fn <- function(x) {
+      str_extract(x, "RELMa|AQP1|lining|infiltrating")
+    }
+    
+    plt <- dat %>%
+      filter(name %in% lvls) %>%
+      mutate(name = fct_relevel(name, rev(lvls))) %>%
+      
+      ggplot(aes(rep, name, fill = value)) +
+      geom_tile() +
+      facet_wrap( ~ mac_type, nrow = 1, labeller = as_labeller(lab_fn)) +
+      scale_fill_gradientn(colours = c("lightblue", "white", "red")) +
+      ggtitle(.y) +
+      guides(fill = guide_colorbar(ticks = FALSE, barwidth = unit(10, "pt"), barheight = unit(150, "pt"))) +
+      base_theme +
+      theme(
+        aspect.ratio = asp_rat,
+        axis.title = element_blank(),
+        legend.title = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        strip.text = element_text(size = 10),
+        strip.clip = "off"
+      )
+    
+    print(plt)
+    cat("\n\n---\n\n<br>\n\n<br>\n\n")
+  })
+
+```
+
+## T cells
+
+Genes upregulated in T cells from CHIKV vs mock-infected mice are shown below.
+All CD4+ or CD8+ T cells were grouped together.
+
+```{r "upreg T cells", fig.width = 8, fig.height = 10}
+
+# Select genes to plot
+gns <- t_degs %>%
+  filter(
+    avg_log2FC > 0.25, p_val_adj < 0.05,
+    pct.1 > 0.3, pct.2 < 0.8,
+    !grepl("^mt-", gene)
+  ) %>%
+  arrange(p_val_adj)
+
+gns_key <- gns %>%
+  split(.$cd4_8) %>%
+  map(pull, gene)
+
+gns <- unique(gns$gene)
+
+# Format data for plotting
+plt_dat <- so_t_int %>%
+  FetchData(c("treatment", "rep", "cd4_8", gns)) %>%
+  as_tibble(rownames = ".cell_id") %>%
+  pivot_longer(all_of(gns)) %>%
+  
+  group_by(treatment, rep, cd4_8, name) %>%
+  summarize(value = mean(value), .groups = "drop") %>%
+  
+  group_by(name, cd4_8) %>%
+  mutate(value = as.numeric(scale(value))) %>%
+  ungroup() %>%
+  
+  rowwise() %>%
+  filter(name %in% gns_key[[cd4_8]]) %>%
+  ungroup() %>%
+  mutate(
+    treatment = fct_relevel(treatment, treats),
+    name = fct_relevel(name, gns)
+  )
+
+# Create heatmaps
+t_heats <- c("CD4", "CD8") %>%
+  set_names() %>%
+  map(~ {
+    dat <- plt_dat %>%
+      filter(cd4_8 == .x)
+    
+    asp_rat <- n_distinct(dat$name) / n_distinct(dat$rep)
+    
+    dat %>%
+      ggplot(aes(rep, name, fill = value)) +
+      geom_tile() +
+      facet_wrap(~ treatment, nrow = 1) +
+      scale_fill_gradientn(colours = c("lightblue", "white", "red")) +
+      guides(fill = guide_colorbar(ticks = FALSE, barwidth = unit(10, "pt"), barheight = unit(150, "pt"))) +
+      ggtitle(str_c(.x, "+ T cells")) +
+      base_theme +
+      theme(
+        aspect.ratio = asp_rat,
+        plot.title = element_text(hjust = 0.5),
+        strip.clip = "off",
+        axis.title = element_blank(),
+        legend.title = element_blank()
+      )
+  })
+
+plot_grid(
+  plotlist = t_heats,
+  nrow = 1,
+  rel_widths = c(1, 0.7)
+)
+
+```
+
+```{r "upreg all T cells", fig.width = 8, fig.height = 10, eval = FALSE}
+
+# Select genes to plot
+gns <- t_all_degs %>%
+  filter(
+    min_FC > log2(1.25), minimump_p_val < 0.05,
+    !grepl("^mt-", gene)
+  ) %>%
+  arrange(desc(min_FC))
+
+gns_key <- gns %>%
+  split(.$cd4_8) %>%
+  map(pull, gene)
+
+gns <- unique(gns$gene)
+
+# Format data for plotting
+plt_dat <- so_t_int %>%
+  FetchData(c("treatment", "rep", "cd4_8", gns)) %>%
+  as_tibble(rownames = ".cell_id") %>%
+  pivot_longer(all_of(gns)) %>%
+  
+  group_by(treatment, rep, cd4_8, name) %>%
+  summarize(value = mean(value), .groups = "drop") %>%
+  
+  group_by(name, cd4_8) %>%
+  mutate(value = as.numeric(scale(value))) %>%
+  ungroup() %>%
+  
+  rowwise() %>%
+  filter(name %in% gns_key[[cd4_8]]) %>%
+  ungroup() %>%
+  mutate(
+    treatment = fct_relevel(treatment, treats),
+    name = fct_relevel(name, gns)
+  )
+
+# Create heatmaps
+t_heats <- c("CD4", "CD8") %>%
+  set_names() %>%
+  map(~ {
+    dat <- plt_dat %>%
+      filter(cd4_8 == .x)
+    
+    asp_rat <- n_distinct(dat$name) / n_distinct(dat$rep)
+    
+    dat %>%
+      ggplot(aes(rep, name, fill = value)) +
+      geom_tile() +
+      facet_wrap(~ treatment, nrow = 1) +
+      scale_fill_gradientn(colours = c("lightblue", "white", "red")) +
+      guides(fill = guide_colorbar(ticks = FALSE, barwidth = unit(10, "pt"), barheight = unit(150, "pt"))) +
+      ggtitle(str_c(.x, "+ T cells")) +
+      base_theme +
+      theme(
+        aspect.ratio = asp_rat,
+        plot.title = element_text(hjust = 0.5),
+        strip.clip = "off",
+        axis.title = element_blank(),
+        legend.title = element_blank()
+      )
+  })
+
+plot_grid(
+  plotlist = t_heats,
+  nrow = 1,
+  rel_widths = c(1, 0.7)
+)
+
+```
+
+```{r "upreg T cell subsets", fig.width = 8, fig.height = 10, eval = FALSE}
+
+# Select genes to plot
+gns <- t_typ_degs %>%
+  filter(
+    avg_log2FC > 0.25, p_val_adj < 0.05,
+    pct.1 > 0.3, pct.2 < 0.8,
+    !grepl("^mt-", gene)
+  ) %>%
+  arrange(p_val_adj)
+
+gns_key <- gns %>%
+  split(.$t_type) %>%
+  map(pull, gene)
+
+gns <- unique(gns$gene)
+
+# Format data for plotting
+plt_dat <- so_t_int %>%
+  FetchData(c("treatment", "rep", "t_type", gns)) %>%
+  as_tibble(rownames = ".cell_id") %>%
+  pivot_longer(all_of(gns)) %>%
+  
+  group_by(treatment, rep, t_type, name) %>%
+  summarize(value = mean(value), .groups = "drop") %>%
+  
+  group_by(name, t_type) %>%
+  mutate(value = as.numeric(scale(value))) %>%
+  ungroup() %>%
+  
+  rowwise() %>%
+  filter(name %in% gns_key[[t_type]]) %>%
+  ungroup() %>%
+  mutate(
+    treatment = fct_relevel(treatment, treats),
+    name = fct_relevel(name, gns)
+  )
+
+# Create heatmaps
+typs <- unique(so_t_int$t_type)
+
+t_heats <- typs %>%
+  set_names() %>%
+  map(~ {
+    dat <- plt_dat %>%
+      filter(t_type == .x)
+    
+    if (nrow(dat) == 0) return(NULL)
+    
+    asp_rat <- n_distinct(dat$name) / n_distinct(dat$rep)
+    
+    dat %>%
+      ggplot(aes(rep, name, fill = value)) +
+      geom_tile() +
+      facet_wrap(~ treatment, nrow = 1) +
+      scale_fill_gradientn(colours = c("lightblue", "white", "red")) +
+      guides(fill = guide_colorbar(ticks = FALSE, barwidth = unit(10, "pt"), barheight = unit(150, "pt"))) +
+      ggtitle(str_c(.x, "+ T cells")) +
+      base_theme +
+      theme(
+        aspect.ratio = asp_rat,
+        plot.title = element_text(hjust = 0.5),
+        strip.clip = "off",
+        axis.title = element_blank(),
+        legend.title = element_blank()
+      )
+  }) %>%
+  purrr::discard(is.null)
+
+plot_grid(
+  plotlist = t_heats,
+  nrow = 1,
+  rel_widths = c(1, 0.7)
+)
+
+```
+
+```{r "downreg T cells", fig.width = 8, fig.height = 10, eval = FALSE}
+
+# Select genes to plot
+gns <- t_degs %>%
+  filter(
+    avg_log2FC < -0.25, p_val_adj < 0.05,
+    pct.1 < 0.8, pct.2 > 0.3,
+    !grepl("^mt-", gene)
+  ) %>%
+  arrange(p_val_adj)
+
+gns_key <- gns %>%
+  split(.$cd4_8) %>%
+  map(pull, gene)
+
+gns <- unique(gns$gene)
+
+# Format data for plotting
+plt_dat <- so_t_int %>%
+  FetchData(c("treatment", "rep", "cd4_8", gns)) %>%
+  as_tibble(rownames = ".cell_id") %>%
+  pivot_longer(all_of(gns)) %>%
+  
+  group_by(treatment, rep, cd4_8, name) %>%
+  summarize(value = mean(value), .groups = "drop") %>%
+  
+  group_by(name, cd4_8) %>%
+  mutate(value = as.numeric(scale(value))) %>%
+  ungroup() %>%
+  
+  rowwise() %>%
+  filter(name %in% gns_key[[cd4_8]]) %>%
+  ungroup() %>%
+  mutate(
+    treatment = fct_relevel(treatment, treats),
+    name = fct_relevel(name, gns)
+  )
+
+# Create heatmaps
+t_heats <- c("CD4", "CD8") %>%
+  set_names() %>%
+  map(~ {
+    dat <- plt_dat %>%
+      filter(cd4_8 == .x)
+    
+    asp_rat <- n_distinct(dat$name) / n_distinct(dat$rep)
+    
+    dat %>%
+      ggplot(aes(rep, name, fill = value)) +
+      geom_tile() +
+      facet_wrap(~ treatment, nrow = 1) +
+      scale_fill_gradientn(colours = c("lightblue", "white", "red")) +
+      guides(fill = guide_colorbar(ticks = FALSE, barwidth = unit(10, "pt"), barheight = unit(150, "pt"))) +
+      ggtitle(str_c(.x, "+ T cells")) +
+      base_theme +
+      theme(
+        aspect.ratio = asp_rat,
+        plot.title = element_text(hjust = 0.5),
+        strip.clip = "off",
+        axis.title = element_blank(),
+        legend.title = element_blank()
+      )
+  })
+
+plot_grid(
+  plotlist = t_heats,
+  nrow = 1,
+  rel_widths = c(1, 0.7)
+)
+
+```

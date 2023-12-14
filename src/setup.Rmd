@@ -1,3 +1,8 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
 
 ```{r "packages", include = FALSE}
 
@@ -352,10 +357,153 @@ so_mac <- so_mac %>%
     cluster_col = mac_clst_clmn
   )
 
+# Cluster each treatment separately
+so_mac <- set_names(treats) %>%
+  map(~ {
+    so_mac %>%
+      subset_sobj(
+        treatment == .x,
+        dims         = 1:40,
+        rsln         = c(0.5, 1, 2),
+        regress_vars = c("pct_mito", "nCount_RNA")
+      )
+  })
+
+# Integration features
+features <- SelectIntegrationFeatures(object.list = so_mac)
+
+# Scale data using integration features
+so_mac <- so_mac %>%
+  map(~ {
+    .x %>%
+      ScaleData(features = features) %>%
+      RunPCA(features = features)
+  })
+
+# Get integration anchors and integrate
+int_anchors <- so_mac %>%
+  FindIntegrationAnchors(
+    anchor.features = features,
+    reduction = "rpca"
+  )
+
+so_mac <- int_anchors %>%
+  IntegrateData(normalization.method = "LogNormalize")
+
+# Scale and cluster integrated data
+DefaultAssay(so_mac) <- "integrated"
+
+so_mac <- so_mac %>%
+  ScaleData() %>%
+  RunPCA() %>%
+  RunUMAP(dims = 1:30) %>%
+  FindNeighbors(dims = 1:30) %>%
+  FindClusters(resolution = c(0.5, 1, 2)) %>%
+  AddMetaData(FetchData(., c("UMAP_1", "UMAP_2")))
+
+int_clst_clmn <- "integrated_snn_res.1"
+
+```
+
+```{r "macrophage subsets", eval = create_so}
+# Format culemann gene lists
+# Cx3cr1 is tagged with TdTomato
+feats <- culemann_genes %>%
+  imap(~ {
+    fts <- .x %>%
+      dplyr::select(gene, cluster) %>%
+      split(.$cluster) %>%
+      map(pull, gene)
+    
+    fts <- fts[names(fts) %in% feat_key[[.y]]]
+    fts <- fts[feat_key[[.y]]]
+    
+    fts %>%
+      map(~ {
+        .x[.x == "TdTomato"] <- "Cx3cr1"
+        .x[.x %in% VariableFeatures(so_int)]
+      })
+  }) %>%
+  flatten()
+
+# Add module scores
+mod_clmns <- set_names(
+  str_c(feat_lvls, seq_along(feat_lvls)),
+  feat_lvls
+)
+
+so_int <- so_int %>%
+  mutate_meta(dplyr::select, -any_of(names(feats))) %>%
+  AddModuleScore(
+    feats,
+    name = names(feats),
+    seed = 42,
+    ctrl = 35
+  ) %>%
+  mutate_meta(rename, !!!syms(mod_clmns))
+
+feats_use <- feat_lvls
+
+# Module score cutoffs for assigning annotations
+ann_key <- c(
+  AQP1_interstitial      = 0.3,
+  CCR2_IL1B_infiltrating = 0.45,
+  CCR2_ARG1_infiltrating = 0.8,
+  CX3CR1_lining          = 0.75,
+  RELMa_interstitial     = 0.8
+)
+
+# Add subset labels to object
+so_int <- so_int %>%
+  mutate_meta(mutate, mac_type = as.character(NA))
+
+ann_key %>%
+  iwalk(~ {
+    clmn <- .y
+    cut  <- .x
+    
+    so_int <<- so_int %>%
+      mutate_meta(~ {
+        .x %>%
+          group_by(!!sym(int_clst_clmn)) %>%
+          mutate(
+            mac_type = ifelse(mean(!!sym(clmn)) > cut, clmn, mac_type)
+          ) %>%
+          ungroup()
+      })
+  })
+
+so_int <- so_int %>%
+  mutate_meta(
+    mutate,
+    mac_type = replace_na(mac_type, "unassigned"),
+    mac_type = str_remove(mac_type, ".+_(?=infiltrating)")
+  )
+
+# Plot modules scores for each subset
+cutoffs <- tibble(
+  name   = names(ann_key),
+  cutoff = ann_key
+)
+
+mod_plt <- so_int %>%
+  FetchData(c(int_clst_clmn, "mac_type", feats_use)) %>%
+  pivot_longer(all_of(feats_use)) %>%
+  
+  mutate(
+    cluster = str_c(!!sym(int_clst_clmn), name),
+    cluster = fct_reorder(cluster, value, mean, .desc = TRUE)
+  ) %>%
+  ggplot(aes(cluster, value, fill = mac_type)) +
+  geom_boxplot() +
+  geom_hline(aes(yintercept = cutoff), data = cutoffs, linetype = 2) +
+
+  facet_wrap(~ name, scale = "free", nrow = 1) +
+  scale_x_discrete(label = (function(x) str_extract(x, "^[0-9]+"))) +
+  base_theme
 ```
 
 ```{r "further adjust cell types", eval = FALSE}
-
 # COULD RUN THIS AFTER CREATING ALL SUBSETTED OBJECTS
 
 # Adjust cell types to label unassigned cells that were filtered from
@@ -369,7 +517,6 @@ so <- so %>%
       cell_type
     )
   )
-
 ```
 
 ```{r "save objects", eval = create_so}
