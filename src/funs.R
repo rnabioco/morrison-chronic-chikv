@@ -14,7 +14,7 @@ save_objs <- function(ob_in, prfx = NULL, ob_dir = so_dir) {
   }
   
   ob_in %>%
-    write_rds(here(ob_dir, str_c(prfx, ".rds")))
+    qsave(here(ob_dir, str_c(prfx, ".qs")))
   
   ob_in@meta.data %>%
     as_tibble(rownames = "cell_id") %>%
@@ -664,7 +664,38 @@ subset_sobj <- function(sobj_in, ..., assay = "RNA", var_p = 0.05, rsln = 1,
   
   # Find variable features with M3Drop
   # counts cannot be log-normalized
-  counts <- res %>%
+  res <- res %>%
+    run_m3drop(
+      assay = assay,
+      var_p = var_p
+    )
+  
+  # Cluster cells
+  res <- res %>%
+    ScaleData(
+      assay = assay,
+      vars.to.regress = regress_vars
+    ) %>%
+    cluster_RNA(
+      assay      = assay,
+      resolution = rsln,
+      dims       = dims
+    )
+  
+  res
+}
+
+#' Find variable features with M3Drop
+#' 
+#' @param sobj_in Seurat object.
+#' @param assay Name of assay in object.
+#' @param var_p p-value cutoff for variable features.
+#' @return Seurat object with variable features added
+#' @export
+run_m3drop <- function(sobj_in, assay = "RNA", var_p = 0.05) {
+  
+  # counts cannot be log-normalized
+  counts <- sobj_in %>%
     GetAssayData(
       slot  = "counts",
       assay = assay
@@ -680,21 +711,9 @@ subset_sobj <- function(sobj_in, ..., assay = "RNA", var_p = 0.05, rsln = 1,
       suppress.plot = TRUE
     )
   
-  VariableFeatures(res) <- rownames(var_genes)
+  VariableFeatures(sobj_in) <- rownames(var_genes)
   
-  # Cluster cells
-  res <- res %>%
-    ScaleData(
-      assay = assay,
-      vars.to.regress = regress_vars
-    ) %>%
-    cluster_RNA(
-      assay      = assay,
-      resolution = rsln,
-      dims       = dims
-    )
-  
-  res
+  sobj_in
 }
 
 #' Create labeller function to add cell n labels

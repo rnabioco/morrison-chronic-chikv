@@ -5,29 +5,43 @@ editor_options:
 ---
 
 ```{r "packages", include = FALSE}
+# Tidyverse
+library(tidyverse)
+library(broom)
+library(here)
+library(cowplot)
+library(knitr)
 
-# Load packages
-pcks <- c(
-  "tidyverse",   "Seurat",
-  "here",        "cowplot",
-  "clustifyr",   "clustifyrdata",
-  "colorblindr", "knitr",
-  "scales",      "DoubletFinder",
-  "presto",      "gprofiler2",
-  "ggrepel",     "djvdj",
-  "patchwork",   "broom",
-  "M3Drop",      "ggtrace",
-  "qs"
-)
+# Plotting
+library(ggtrace)
+library(colorblindr)
+library(djvdj)
+library(scales)
+library(ggrepel)
+library(patchwork)
 
-purrr::walk(pcks, library, character.only = TRUE)
+# scRNA-seq analysis
+library(Seurat)
+library(clustifyr)
+library(clustifyrdata)
+library(DoubletFinder)
+library(M3Drop)
+library(presto)
+library(gprofiler2)
+library(qs)
+
+# Bioconductor
+library(clusterProfiler)
+library(enrichplot)
+library(msigdbr)
+library(DOSE)
+library(biomaRt)
+library(org.Mm.eg.db)
 
 source(here(params$template_dir, "funs.R"))
-
 ```
 
 ```{r "params", echo = FALSE}
-
 # Default chunk options
 opts_chunk$set(
   message = FALSE,
@@ -35,27 +49,25 @@ opts_chunk$set(
   echo    = FALSE
 )
 
-# Set directories
-proj <- basename(here())
-
-so_dir    <- file.path(params$so_dir, "morrison-scRNA-seq", unenr_dir, "sobjs")
-table_dir <- here(unenr_dir, params$table_dir)
-geo_dir   <- here(unenr_dir, params$geo_dir)
-metrics   <- here(unenr_dir, params$metrics)
+# Adjust directory paths based on user input
+so_dir    <- params$so_dir
+enr_dir   <- params$enr_dir
+unenr_dir <- params$unenr_dir
+table_dir <- here(params$table_dir)
+ref_dir   <- here(params$ref_dir)
+geo_dir   <- here(params$geo_dir)
+metrics   <- here(params$metrics)
 
 # Should objects be created
-load_objs <- "so"
+load_objs <- "so_mac_int"
 
 files_in <- load_objs %>%
-  str_c(".rds") %>%
+  str_c(".qs") %>%
   here(so_dir, .)
 
 create_so <- files_in %>%
   map_lgl(~ !file.exists(here(.x))) %>%
   any()
-
-# Should enriched objects be created
-create_enr_so <- !file.exists(here(so_dir, "so_enr.rds"))
 
 # Clustering parameters
 rslns <- c(3.4, 4.2, 5)
@@ -93,11 +105,9 @@ treats <- c(
 
 # CHIKV group labels
 chikv_grps <- c("CHIKV-low", "CHIKV-high")
-
 ```
 
 ```{r "references", echo = FALSE}
-
 # LEC reference
 ref_lec <- ref_immgen[, grepl("^Endothelial cells", colnames(ref_immgen))]
 ref_lec <- ref_lec[rownames(ref_lec) %in% rownames(ref_LEC_xiang), ]
@@ -125,15 +135,83 @@ if (!identical(rownames(ref_lymphnodestromal), rownames(ref_fib))) {
 }
 
 ref_fib <- cbind(ref_lymphnodestromal, ref_fib)
+```
 
+```{r "culemann gene lists"}
+# Gene lists from Culemann et al.
+culemann_genes <- list(
+  mock  = here(ref_dir, "2019_Culemann/table_s1.txt"),
+  CHIKV = here(ref_dir, "2019_Culemann/table_s2.txt")
+)
+
+culemann_genes <- culemann_genes %>%
+  map(~ {
+    read_delim(
+      file   = .x,
+      delim  = " ",
+      locale = locale(decimal_mark = ",")
+    )
+  })
+
+feat_key <- list(
+  mock = c(
+    "0" = "AQP1_interstitial",
+    "2" = "RELMa_interstitial",
+    "3" = "CX3CR1_lining",
+    "1" = "MHCII_interstitial",
+    "4" = "STMN1_proliferating",  # weak non-specific signal
+    "5" = "ACP5_osteoclast"
+  ),
+  CHIKV = c(
+    "1" = "CX3CR1_lining",
+    "2" = "RELMa_interstitial",
+    "0" = "CCR2_IL1B_infiltrating",
+    "4" = "CCR2_ARG1_infiltrating",
+    "3" = "MHCII_interstitial",
+    "6" = "STMN1_proliferating",
+    "5" = "MHCII_DCs"
+  )
+)
+
+culemann_genes <- culemann_genes %>%
+  imap(~ {
+    .x %>%
+      mutate(cluster = feat_key[[.y]][as.character(cluster)])
+  })
+
+feat_key <- list(
+  mock  = unname(feat_key$mock[1:3]),
+  CHIKV = unname(grep("infiltrating$", feat_key$CHIKV, value = TRUE))
+)
+
+feat_lvls <- unlist(feat_key, use.names = FALSE)
+
+# Format culemann gene lists
+# Cx3cr1 is tagged with TdTomato
+feats <- culemann_genes %>%
+  imap(~ {
+    fts <- .x %>%
+      dplyr::select(gene, cluster) %>%
+      split(.$cluster) %>%
+      map(pull, gene)
+    
+    fts <- fts[names(fts) %in% feat_key[[.y]]]
+    fts <- fts[feat_key[[.y]]]
+    
+    fts %>%
+      map(~ {
+        .x[.x == "TdTomato"] <- "Cx3cr1"
+        .x[.x %in% VariableFeatures(so_mac_int)]
+      })
+  }) %>%
+  flatten()
 ```
 
 ```{r "create objects", include = FALSE, eval = create_so}
-
 # Create Seurat object
 mats <- params$samples %>%
   set_names() %>%
-  map_chr(~ here(file.path(unenr_dir, .x, "outs/filtered_feature_bc_matrix")))
+  map_chr(~ here(unenr_dir, .x, "outs/filtered_feature_bc_matrix"))
 
 sobjs <- mats %>%
   imap(~ create_virus_obj(
@@ -145,11 +223,9 @@ sobjs <- mats %>%
     virus_str   = "^CHIKV",
     virus_assay = "CHIKV"
   ))
-
 ```
 
 ```{r "doublets", eval = create_so && params$rm_doublets}
-
 # Estimate doublets
 # add doublet classifications to meta.data
 sobjs <- sobjs %>%
@@ -171,23 +247,9 @@ sobjs <- sobjs %>%
         )
       )
   })
-
 ```
 
 ```{r "cluster cells", eval = create_so}
-
-# Identify CHIKV low/high cells
-# Do not cluster since <100 cells with CHIKV counts
-sobjs <- sobjs %>%
-  map(~ {
-    .x %>%
-      mutate_meta(
-        mutate,
-        chikv_grp = ifelse(nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1]),
-        nCount_CHIKV_log = log10(nCount_CHIKV + 1)
-      )
-  })
-
 # Format sample/replicate names
 sobjs <- sobjs %>%
   map(~ {
@@ -214,27 +276,12 @@ so <- sobjs %>%
       )
   })
 
-so <- merge(so[[1]], so[2:length(so)])
+so <- merge(so[[1]], so[-1])
 
 # Find variable features with M3Drop
 # counts cannot be log-normalized
-counts <- so %>%
-  GetAssayData(
-    slot  = "counts",
-    assay = "RNA"
-  ) %>%
-  M3DropConvertData(
-    is.log    = FALSE,
-    is.counts = TRUE
-  )
-
-var_genes <- counts %>%
-  M3DropFeatureSelection(
-    mt_threshold  = 0.001,
-    suppress.plot = TRUE
-  )
-
-VariableFeatures(so) <- rownames(var_genes)
+so <- so %>%
+  run_m3drop(assay = "RNA", var_p = 0.001)
 
 # Cluster cells
 so <- so %>%
@@ -246,20 +293,128 @@ so <- so %>%
   )
 
 # Save unfiltered objects and meta.data
-# Save and delete raw objects asap to free up memory
-so_raw <- merge(sobjs[[1]], sobjs[2:length(sobjs)])
+# save and delete raw objects asap to free up memory
+so_raw <- merge(sobjs[[1]], sobjs[-1])
 
 so_raw_df <- so_raw@meta.data %>%
   as_tibble(rownames = "cell_id")
 
-save_objs(so_raw)
+save_objs(so_raw, ob_dir = so_dir)
 
 rm(sobjs, so_raw)
+```
 
+```{r "add enriched CHIKV counts", eval = create_so}
+# Create Seurat object for CHIKV-enriched data
+enr_mat <- params$samples %>%
+  set_names() %>%
+  map_chr(~ here(enr_dir, .x, "outs/filtered_feature_bc_matrix"))
+
+so_enr <- enr_mat %>%
+  imap(~ {
+    .x %>%
+      create_virus_obj(
+        proj_name   = .y,
+        gene_min    = -Inf,
+        gene_max    = Inf,
+        mito_max    = Inf,
+        virus_str   = "^CHIKV",
+        virus_assay = "CHIKV"
+      )
+  })
+
+so_enr <- merge(so_enr[[1]], so_enr[-1])
+
+# Add new CHIKV counts to meta.data from unfiltered Seurat objects
+chikv_feats <- c(
+  "5"            = "chikv_CHIKV-AF15561-5",
+  "sgRNA"        = "chikv_CHIKV-AF15561-sgRNA",
+  "neg"          = "chikv_CHIKV-AF15561-neg",
+  "nCount_CHIKV" = "nCount_CHIKV",
+  "pct_CHIKV"    = "pct_CHIKV",
+  "nCount_RNA"   = "nCount_RNA"
+)
+
+get_feats <- c("orig.ident", chikv_feats)
+
+so_enr_df <- so_enr %>%
+  FetchData(get_feats) %>%
+  dplyr::rename(!!!chikv_feats) %>%
+  rename_with(~ str_c("enr_", .x), .cols = all_of(names(chikv_feats))) %>%
+  rownames_to_column("cell_id")
+
+so_enr_df <- so_raw_df %>%
+  full_join(so_enr_df, by = c("cell_id", "orig.ident"))
+
+# Add meta.data from filtered Seurat object
+clmns <- c(
+  "cell_id", "orig.ident",
+  "UMAP_1",  "UMAP_2"
+)
+
+so_enr_df <- so@meta.data %>%
+  as_tibble(rownames = "cell_id") %>%
+  dplyr::select(any_of(clmns)) %>%
+  full_join(so_enr_df, by = c("cell_id", "orig.ident")) %>%
+  dplyr::rename_with(
+    .cols = starts_with("CHIKV"),
+    ~ str_remove(.x, "_AF15561")
+  )
+
+# Format enriched counts
+enr_counts <- so_enr_df %>%
+  mutate(
+    across(starts_with("enr_"), ~ replace_na(.x, 0)),
+    tot_nCount_CHIKV = nCount_CHIKV + enr_nCount_CHIKV,
+    tot_nCount_RNA   = nCount_RNA + enr_nCount_RNA,
+    tot_pct_CHIKV    = (tot_nCount_CHIKV / (tot_nCount_RNA + tot_nCount_CHIKV)) * 100,
+    
+    tot_5     = CHIKV_5 + enr_5,
+    tot_sgRNA = CHIKV_sgRNA + enr_sgRNA,
+    tot_neg   = CHIKV_neg   + enr_neg
+  ) %>%
+  dplyr::select(cell_id, starts_with("tot")) %>%
+  column_to_rownames("cell_id")
+
+# Add enriched counts to object
+so <- so %>%
+  AddMetaData(enr_counts)
+
+# Save enriched objects
+# Save data.frame with enriched counts
+# this includes cells not present in the original object
+save_objs(so_enr, ob_dir = so_dir)
+
+so_enr_df %>%
+  write_tsv(here(so_dir, "so_enr.tsv.gz"))
+
+
+
+#### NEED TO FIX THIS ####
+# # Identify CHIKV low/high cells
+# # Do not cluster since <100 cells with CHIKV counts
+# sobjs <- sobjs %>%
+#   map(~ {
+#     .x %>%
+#       mutate_meta(
+#         mutate,
+#         chikv_grp = ifelse(nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1]),
+#         nCount_CHIKV_log = log10(nCount_CHIKV + 1)
+#       )
+#   })
+# 
+# so_df <- so@meta.data %>%
+#   as_tibble(rownames = "cell_id")
+# 
+# # Add enriched counts to Mac object
+# so_mac <- so_mac %>%
+#   AddMetaData(enr_counts)
+# 
+# so_mac_df <- so_mac@meta.data %>%
+#   as_tibble(rownames = "cell_id")
 ```
 
 ```{r "clustify types", eval = create_so}
-
 # Classify broad cell types
 type_clsts %>%
   iwalk(~ {
@@ -332,13 +487,11 @@ so <- so %>%
 so <- so %>%
   mutate_meta(
     mutate,
-    cell_type = recode(cell_type, Tgd = "T cells")
+    cell_type = dplyr::recode(cell_type, Tgd = "T cells")
   )
-
 ```
 
 ```{r "macrophage object", eval = create_so}
-
 # Subset macrophages
 so_mac <- so %>%
   subset_sobj(
@@ -358,7 +511,7 @@ so_mac <- so_mac %>%
   )
 
 # Cluster each treatment separately
-so_mac <- set_names(treats) %>%
+so_mac_int <- set_names(treats) %>%
   map(~ {
     so_mac %>%
       subset_sobj(
@@ -370,10 +523,10 @@ so_mac <- set_names(treats) %>%
   })
 
 # Integration features
-features <- SelectIntegrationFeatures(object.list = so_mac)
+features <- SelectIntegrationFeatures(object.list = so_mac_int)
 
 # Scale data using integration features
-so_mac <- so_mac %>%
+so_mac_int <- so_mac_int %>%
   map(~ {
     .x %>%
       ScaleData(features = features) %>%
@@ -381,19 +534,19 @@ so_mac <- so_mac %>%
   })
 
 # Get integration anchors and integrate
-int_anchors <- so_mac %>%
+int_anchors <- so_mac_int %>%
   FindIntegrationAnchors(
     anchor.features = features,
     reduction = "rpca"
   )
 
-so_mac <- int_anchors %>%
+so_mac_int <- int_anchors %>%
   IntegrateData(normalization.method = "LogNormalize")
 
 # Scale and cluster integrated data
-DefaultAssay(so_mac) <- "integrated"
+DefaultAssay(so_mac_int) <- "integrated"
 
-so_mac <- so_mac %>%
+so_mac_int <- so_mac_int %>%
   ScaleData() %>%
   RunPCA() %>%
   RunUMAP(dims = 1:30) %>%
@@ -402,7 +555,6 @@ so_mac <- so_mac %>%
   AddMetaData(FetchData(., c("UMAP_1", "UMAP_2")))
 
 int_clst_clmn <- "integrated_snn_res.1"
-
 ```
 
 ```{r "macrophage subsets", eval = create_so}
@@ -421,7 +573,7 @@ feats <- culemann_genes %>%
     fts %>%
       map(~ {
         .x[.x == "TdTomato"] <- "Cx3cr1"
-        .x[.x %in% VariableFeatures(so_int)]
+        .x[.x %in% VariableFeatures(so_mac_int)]
       })
   }) %>%
   flatten()
@@ -432,7 +584,7 @@ mod_clmns <- set_names(
   feat_lvls
 )
 
-so_int <- so_int %>%
+so_mac_int <- so_mac_int %>%
   mutate_meta(dplyr::select, -any_of(names(feats))) %>%
   AddModuleScore(
     feats,
@@ -440,7 +592,7 @@ so_int <- so_int %>%
     seed = 42,
     ctrl = 35
   ) %>%
-  mutate_meta(rename, !!!syms(mod_clmns))
+  mutate_meta(dplyr::rename, !!!syms(mod_clmns))
 
 feats_use <- feat_lvls
 
@@ -448,13 +600,13 @@ feats_use <- feat_lvls
 ann_key <- c(
   AQP1_interstitial      = 0.3,
   CCR2_IL1B_infiltrating = 0.45,
-  CCR2_ARG1_infiltrating = 0.8,
+  CCR2_ARG1_infiltrating = 0.75,
   CX3CR1_lining          = 0.75,
   RELMa_interstitial     = 0.8
 )
 
 # Add subset labels to object
-so_int <- so_int %>%
+so_mac_int <- so_mac_int %>%
   mutate_meta(mutate, mac_type = as.character(NA))
 
 ann_key %>%
@@ -462,7 +614,7 @@ ann_key %>%
     clmn <- .y
     cut  <- .x
     
-    so_int <<- so_int %>%
+    so_mac_int <<- so_mac_int %>%
       mutate_meta(~ {
         .x %>%
           group_by(!!sym(int_clst_clmn)) %>%
@@ -473,7 +625,7 @@ ann_key %>%
       })
   })
 
-so_int <- so_int %>%
+so_mac_int <- so_mac_int %>%
   mutate_meta(
     mutate,
     mac_type = replace_na(mac_type, "unassigned"),
@@ -486,7 +638,7 @@ cutoffs <- tibble(
   cutoff = ann_key
 )
 
-mod_plt <- so_int %>%
+mod_plt <- so_mac_int %>%
   FetchData(c(int_clst_clmn, "mac_type", feats_use)) %>%
   pivot_longer(all_of(feats_use)) %>%
   
@@ -499,11 +651,150 @@ mod_plt <- so_int %>%
   geom_hline(aes(yintercept = cutoff), data = cutoffs, linetype = 2) +
 
   facet_wrap(~ name, scale = "free", nrow = 1) +
-  scale_x_discrete(label = (function(x) str_extract(x, "^[0-9]+"))) +
-  base_theme
+  scale_x_discrete(label = (function(x) str_extract(x, "^[0-9]+")))
 ```
 
-```{r "further adjust cell types", eval = FALSE}
+```{r "t cell objects", eval = create_so}
+# Subset T cells
+so_t <- so %>%
+  subset_sobj(
+    cell_type %in% c("T cells", "Tgd"),
+    var_p        = 0.001,
+    dims         = 1:50,
+    rsln         = 1,
+    regress_vars = "pct_mito"
+  )
+
+so_t_int <- so_t %>%
+  integrate_sobj("treatment", rsln = 1)
+
+# Additional filtering based on Cd3 expression
+DefaultAssay(so_t_int) <- "RNA"
+
+so_t_int <- so_t_int %>%
+  AddMetaData(FetchData(., "Cd3e")) %>%
+  mutate_meta(~ {
+    .x %>%
+      group_by(seurat_clusters) %>%
+      mutate(pct_cd3 = length(Cd3e[Cd3e > 0]) / n()) %>%
+      ungroup()
+  }) %>%
+  subset(pct_cd3 > 0.5)
+
+# Reprocess after filtering
+DefaultAssay(so_t_int) <- "integrated"
+
+so_t_int <- so_t_int %>%
+  ScaleData(vars.to.regress = "pct_mito") %>%
+  RunPCA() %>%
+  RunUMAP(dims = 1:40) %>%
+  FindNeighbors(dims = 1:40) %>%
+  FindClusters(resolution = c(0.5, 1, 1.5, 2)) %>%
+  AddMetaData(FetchData(., str_c("UMAP_", 1:2)))
+
+DefaultAssay(so_t_int) <- "RNA"
+
+int_clst_clmn <- "integrated_snn_res.1"
+```
+
+```{r "t cell subsets", eval = create_so}
+# Assign T cell subsets
+cluster_idents <- c(
+  "3" = "CD4 naive",    # Cd44-/CD62L+
+  "0" = "CD8 naive",    # Cd44-/CD62L+
+  "2" = "CD4 Teff",     # Cd44+/CD62L-/Il7r-
+  "4" = "CD8 Teff",     # Cd44+/CD62L-/Il7r-
+  "6" = "CD8 Tcm",      # Cd44+/CD62L+
+  "8" = "CD8 Tcm",      # Cd44+/CD62L+
+  "5" = "Tgd",          # Trdc+
+  "1" = "CD8 naive",    # Cd44-/CD62L+
+  "7" = "Treg"          # Foxp3+
+)
+
+so_t_int <- so_t_int %>%
+  mutate_meta(
+    mutate,
+    t_type = cluster_idents[as.character(!!sym(int_clst_clmn))]
+  )
+
+# FOR NOW REMOVE CLUSTER 8, UNCLEAR IF THESE ARE T CELLS
+so_t_int <- so_t_int %>%
+  subset(integrated_snn_res.1 != "8")
+
+so_t_int <- so_t_int %>%
+  mutate_meta(
+    mutate,
+    cd4_8 = str_extract(t_type, "^CD[48]"),
+    cd4_8 = ifelse(t_type == "Treg", "CD4", cd4_8)
+  )
+
+
+
+# TO CHECK MARKERS
+# marks <- c(
+#   "Trdc", "Trdv4", "Trgv2",
+#   "Cd3e", "Cd8a", "Cd4",
+#   "Cd44", "Sell", "Il7r",
+#   "Foxp3", "Pdcd1", "Havcr2"
+# )
+# 
+# marks %>%
+#   map(~ {
+#     so_t_int %>%
+#       plot_violin(
+#         .x,
+#         cluster_col = int_clst_clmn,
+#         method      = "boxplot"
+#       ) +
+#       facet_wrap(~ treatment) +
+#       theme(aspect.ratio = 0.5)
+#   }) %>%
+#   plot_grid(plotlist = .)
+# 
+# typs <- so_t_int@meta.data %>%
+#   group_by(t_type, treatment, rep, orig.ident) %>%
+#   summarize(n = n()) %>%
+#   filter(n >= 3) %>%
+#   group_by(t_type) %>%
+#   filter(n() == 6) %>%
+#   pull(t_type) %>%
+#   unique()
+# 
+# Idents(so_t_int) <- so_t_int$treatment
+# 
+# x <- typs %>%
+#   map_dfr(~ {
+#     so_t_int %>%
+#       subset(t_type == .x) %>%
+#       FindConservedMarkers(
+#         ident.1 = "CHIKV",
+#         grouping.var = "rep"
+#       ) %>%
+#       as_tibble(rownames = "gene") %>%
+#       mutate(cell_type = .x)
+#   })
+# 
+# so_t_int %>% plot_scatter("t_type", group_col = "orig.ident")
+# 
+# so_t_int %>%
+#   plot_frequency(
+#     "t_type", cluster_col = "orig.ident"
+#   )
+# 
+# marks %>%
+#   map(~ {
+#     so_t_int %>%
+#       plot_scatter(
+#         .x,
+#         plot_colors = c("lightblue", "red"),
+#         size = 0.5
+#       ) +
+#       theme(aspect.ratio = 0.9)
+#   }) %>%
+#   plot_grid(plotlist = .)
+```
+
+```{r "FURTHER ADJUST CELL TYPES", eval = FALSE}
 # COULD RUN THIS AFTER CREATING ALL SUBSETTED OBJECTS
 
 # Adjust cell types to label unassigned cells that were filtered from
@@ -520,146 +811,216 @@ so <- so %>%
 ```
 
 ```{r "save objects", eval = create_so}
-
-# Save Seurat objects
 save_objs(so, ob_dir = so_dir)
-save_objs(so_mac, ob_dir = so_dir)
 
+save_objs(so_mac, ob_dir = so_dir)
+save_objs(so_mac_int, ob_dir = so_dir)
+
+save_objs(so_t, obj_dir = so_dir)
+save_objs(so_t_int, obj_dir = so_dir)
 ```
 
 ```{r "load objects"}
-
 # Load Seurat objects
-so <- read_rds(here(so_dir, "so.rds"))
+so         <- qread(here(so_dir, "so.qs"))
+so_mac_int <- qread(here(so_dir, "so_mac_int.qs"))
+so_t_int   <- qread(here(so_dir, "so_t_int.qs"))
 
-so_df <- so@meta.data %>%
-  as_tibble(rownames = "cell_id")
+# FOR NOW REMOVE CLUSTER 8, UNCLEAR IF THESE ARE T CELLS
+so_t_int <- so_t_int %>%
+  subset(integrated_snn_res.1 != "8")
 
 # Load raw meta.data
 so_raw_df <- read_tsv(here(so_dir, "so_raw.tsv.gz"))
 
-# Load macrophage object
-so_mac <- read_rds(here(so_dir, "so_mac.rds"))
-
-so_mac_df <- so_mac@meta.data %>%
-  as_tibble(rownames = "cell_id")
-
-```
-
-```{r "add enriched CHIKV counts", eval = create_enr_so && params$enr_dir != ""}
-
-# Enriched samples
-enr_sams <- params$enr_samples
-enr_sams <- enr_sams %||% params$samples
-
-enr_sams <- set_names(
-  params$samples,
-  enr_sams
-)
-
-# Create Seurat object for CHIKV-enriched data
-mat <- names(enr_sams) %>%
-  set_names() %>%
-  map_chr(~ here(enr_dir, .x, "outs/filtered_feature_bc_matrix"))
-
-so_enr <- mat %>%
-  imap(~ {
-    .x %>%
-      create_virus_obj(
-        proj_name   = .y,
-        gene_min    = -Inf,
-        gene_max    = Inf,
-        mito_max    = Inf,
-        virus_str   = "^CHIKV",
-        virus_assay = "CHIKV"
-      )
-  })
-
-so_enr <- merge(so_enr[[1]], so_enr[-1])
-
-# Add new CHIKV counts to meta.data from unfiltered Seurat objects
-chikv_feats <- c(
-  "5"            = "chikv_CHIKV-AF15561-5",
-  "sgRNA"        = "chikv_CHIKV-AF15561-sgRNA",
-  "neg"          = "chikv_CHIKV-AF15561-neg",
-  "nCount_CHIKV" = "nCount_CHIKV",
-  "pct_CHIKV"    = "pct_CHIKV",
-  "nCount_RNA"   = "nCount_RNA"
-)
-
-get_feats <- c("orig.ident", chikv_feats)
-
-so_enr_df <- so_enr %>%
-  FetchData(get_feats) %>%
-  dplyr::rename(!!!chikv_feats) %>%
-  rename_with(~ str_c("enr_", .x), .cols = all_of(names(chikv_feats))) %>%
-  rownames_to_column("cell_id") %>%
-  mutate(orig.ident = enr_sams[orig.ident])
-
-so_enr_df <- so_raw_df %>%
-  full_join(so_enr_df, by = c("cell_id", "orig.ident"))
-
-clmns <- c(
-  "cell_id",   "orig.ident",
-  "UMAP_1",    "UMAP_2",
-  "cell_type", "lec_type",
-  "fib_type"
-)
-
-so_enr_df <- so@meta.data %>%
-  as_tibble(rownames = "cell_id") %>%
-  dplyr::select(any_of(clmns)) %>%
-  full_join(so_enr_df, by = c("cell_id", "orig.ident")) %>%
-  dplyr::rename_with(
-    .cols = starts_with("CHIKV"),
-    ~ str_remove(.x, "_AF15561")
-  )
-
-# Format enriched counts
-enr_counts <- so_enr_df %>%
-  mutate(
-    across(starts_with("enr_"), replace_na, 0),
-    tot_nCount_CHIKV = nCount_CHIKV + enr_nCount_CHIKV,
-    tot_nCount_RNA   = nCount_RNA + enr_nCount_RNA,
-    tot_pct_CHIKV    = (tot_nCount_CHIKV / tot_nCount_RNA) * 100,
-    
-    tot_5     = CHIKV_5 + enr_5,
-    tot_sgRNA = CHIKV_sgRNA + enr_sgRNA,
-    tot_neg   = CHIKV_neg   + enr_neg
-  ) %>%
-  dplyr::select(cell_id, starts_with("tot")) %>%
-  column_to_rownames("cell_id")
-
-# Add enriched counts to object
-so <- so %>%
-  AddMetaData(enr_counts)
-
-so_df <- so@meta.data %>%
-  as_tibble(rownames = "cell_id")
-
-# Add enriched counts to Mac object
-so_mac <- so_mac %>%
-  AddMetaData(enr_counts)
-
-so_mac_df <- so_mac@meta.data %>%
-  as_tibble(rownames = "cell_id")
-
-# Save enriched objects
-save_objs(so)
-save_objs(so_mac)
-save_objs(so_enr)
-
-# Save data.frame with enriched counts
-# this includes cells not present in the original object
-so_enr_df %>%
-  write_tsv(here(so_dir, "so_enr.tsv.gz"))
-
-```
-
-```{r "load enriched objects", eval = params$enr_dir != ""}
-
 # Load enriched meta.data
 so_enr_df <- read_tsv(here(so_dir, "so_enr.tsv.gz"))
+```
+
+```{r "theme"}
+# ggplot2 themes
+txt_pt1  <- 10
+txt_pt2  <- 12
+ttl_pt1  <- 14
+ttl_pt2  <- 16
+ln_pt    <- 0.5
+ln_col   <- "grey85"
+cir_size <- 3.5
+sqr_size <- 4
+
+txt_theme_1 <- theme(
+  strip.text  = element_text(size = ttl_pt1),
+  legend.text = element_text(size = txt_pt1),
+  axis.title  = element_text(size = txt_pt2),
+  axis.text   = element_text(size = txt_pt1)
+)
+
+line_theme <- theme(
+  axis.line.x  = element_line(size = ln_pt, color = ln_col),
+  axis.line.y  = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.x = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.y = element_line(size = ln_pt, color = ln_col)
+)
+
+base_theme <- theme_cowplot() +
+  theme(
+    plot.title       = element_text(face = "plain", size = ttl_pt2),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "plain")
+  ) +
+  txt_theme_1 +
+  line_theme
+
+umap_theme <- base_theme +
+  theme(
+    axis.title   = element_blank(),
+    axis.line.x  = element_blank(),
+    axis.line.y  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text    = element_blank(),
+    aspect.ratio = 0.9
+  )
+
+box_theme <- base_theme +
+  theme(
+    legend.position = "none",
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    panel.border    = element_rect(fill = NA, color = ln_col, size = ln_pt),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    axis.title.x    = element_blank()
+  )
+
+fade_0 <- "#FAFAFA"
+fade_1 <- "#F0F0F0"
+fade_2 <- "#D9D9D9"
+
+hist_y_lab <- "number of cells"
+
+# alpha for plots
+al <- 0.7
+
+# Okabe Ito color palettes
+ito_cols <- c(
+  palette_OkabeIto[c(1:3, 5)], "#D7301F",
+  palette_OkabeIto[c(4, 6)],   "#6A51A3",
+  palette_OkabeIto[7],         "#875C04",
+  "#065D43", "#FFD6AD", "#00446E"
+)
+
+ito_cols <- ito_cols[3:length(ito_cols)] %>%
+  darken(0.2) %>%
+  c(ito_cols, ., "#686868", "#000000")
+
+# Set sample colors
+get_cols <- create_col_fun(ito_cols)
+
+sam_cols <- c(
+  "#00446E", "#0072B2", "#56B4E9",
+  "#d7301f", "#D55E00", "#E69F00"
+)
+
+names(sam_cols) <- sam_lvls[params$samples]
+
+# CHIKV treatment groups
+chikv_infctd <- so_df %>%
+  group_by(treatment) %>%
+  summarize(mn = mean(nCount_CHIKV), .groups = "drop") %>%
+  dplyr::filter(mn == max(mn)) %>%
+  pull(treatment)
+
+# Cell type colors
+type_cols <- unique(so_df$cell_type)
+type_cols <- set_names(ito_cols[seq_along(type_cols)], type_cols)
+
+type_cols["unassigned"] <- "#999999"
+
+subtype_cols <- c(colnames(ref_lec), colnames(ref_fib))
+subtype_cols <- set_names(ito_cols[seq_along(subtype_cols)], subtype_cols)
+subtype_cols["unassigned"] <- "#999999"
+subtype_cols["other"]      <- fade_0
+
+# CHIKV clusters colors
+grp_cols <- set_names(
+  c("#56B4E9", "#0072B2"),
+  chikv_grps
+)
+
+grp_rep_cols <- grp_cols %>% 
+  imap(~ set_names(
+    rep(.x, n_rep),
+    str_c(.y, "-", 1:n_rep)
+  )) %>%
+  flatten_chr()
+
+# CHIKV cell type colors
+n_high <- so_df %>%
+  dplyr::filter(chikv_grp == chikv_grps[2]) %>%
+  nrow()
+
+chikv_type_cols <- unique(so_df$cell_type)
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% names(subtype_cols)]
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% c(lec_cell_types, fib_cell_types)]
+
+avail_cols <- ito_cols[!ito_cols %in% subtype_cols]
+
+chikv_type_cols <- set_names(
+  avail_cols[seq_along(chikv_type_cols)],
+  chikv_type_cols
+)
+
+chikv_type_cols <- c(subtype_cols, chikv_type_cols)
+
+chikv_type_cols[chikv_grps[1]] <- fade_2
+
+# Macrophage cluster colors
+mac_clst_cols <- so_mac[[mac_clst_clmn]] %>%
+  pull(mac_clst_clmn) %>%
+  unique() %>%
+  as.numeric() %>%
+  sort() %>%
+  as.character()
+
+mac_clst_cols <- set_names(
+  ito_cols[seq_along(mac_clst_cols)],
+  mac_clst_cols
+)
+
+# UMAP themes
+mac_u_theme <- umap_theme +
+  theme(
+    aspect.ratio         = 0.7,
+    legend.position      = "bottom",
+    legend.justification = "center",
+    legend.title         = element_blank()
+  )
+
+int_u_theme <- mac_u_theme +
+  theme(aspect.ratio = 1)
+
+# Mac subset colors
+mac_typ_cols <- feat_lvls[!grepl("infiltrating$", feat_lvls)]
+
+mac_typ_cols <- set_names(
+  ito_cols[seq_along(mac_typ_cols)],
+  mac_typ_cols
+)
+
+mac_typ_cols["infiltrating"] <- "#0072B2"
+
+# New labels for Mac subsets
+mac_typ_labs <- names(mac_typ_cols)
+  # str_replace("_interstitial", "+") %>%
+  # str_replace("infiltrating", "Inflammatory") %>%
+  # str_replace(".+_lining", "Lining")
+
+mac_typ_labs <- set_names(mac_typ_labs, names(mac_typ_cols))
+
+names(mac_typ_cols) <- mac_typ_labs[names(mac_typ_cols)]
+
+mac_typ_cols_2 <- mac_typ_cols
+mac_typ_cols_2["unassigned"] <- "grey75"
 
 ```
 
