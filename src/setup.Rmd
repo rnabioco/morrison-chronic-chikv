@@ -585,6 +585,10 @@ int_clst_clmn <- "integrated_snn_res.1"
 ```
 
 ```{r "adjust macrophage annotations", eval = create_so}
+
+## LEFT OFF HERE
+## NEED TO ADJUST ANNOTATIONS, REPROCESS, UPDATE ORIGINAL OBJECT
+
 # Classify B/T/NK cells
 so_mac_int <- so_mac_int %>%
   classify_markers(
@@ -596,7 +600,7 @@ so_mac_int <- so_mac_int %>%
   ) %>%
   classify_markers(
     feats = "Ptprc",
-    filt  = Ptprc > 0.5,
+    filt  = Ptprc < 0.5,
     type_label = "unassigned",
     clst_col = int_clst_clmn,
     type_col = "cell_type"
