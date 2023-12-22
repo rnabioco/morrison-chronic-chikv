@@ -185,26 +185,6 @@ feat_key <- list(
 )
 
 feat_lvls <- unlist(feat_key, use.names = FALSE)
-
-# Format culemann gene lists
-# Cx3cr1 is tagged with TdTomato
-feats <- culemann_genes %>%
-  imap(~ {
-    fts <- .x %>%
-      dplyr::select(gene, cluster) %>%
-      split(.$cluster) %>%
-      map(pull, gene)
-    
-    fts <- fts[names(fts) %in% feat_key[[.y]]]
-    fts <- fts[feat_key[[.y]]]
-    
-    fts %>%
-      map(~ {
-        .x[.x == "TdTomato"] <- "Cx3cr1"
-        .x[.x %in% VariableFeatures(so_mac_int)]
-      })
-  }) %>%
-  flatten()
 ```
 
 ```{r "create objects", include = FALSE, eval = create_so}
@@ -247,6 +227,28 @@ sobjs <- sobjs %>%
         )
       )
   })
+
+
+
+# # CHECK DOUBLET FILTERING
+# old_raw %>%
+#   split(.$orig.ident) %>%
+#   map_dbl(~ {
+#     dbl_rate <- 0.0000046
+#     cap_rate <- 0.57
+#     
+#     dbl_rate <- (nrow(.x) / cap_rate) * dbl_rate
+#     
+#     .x %>%
+#       filter(
+#         pct_mito < params$mito_max,
+#         nFeature_RNA > params$gene_min,
+#         nFeature_RNA < params$gene_max
+#       ) %>%
+#       nrow() %>%
+#       (function(x) x - (x * dbl_rate))
+#   }) %>%
+#   sum()
 ```
 
 ```{r "cluster cells", eval = create_so}
@@ -436,8 +438,6 @@ so <- so %>%
   mutate_meta(
     mutate,
     cell_type = str_remove(!!sym(type_clmn), " \\(.+$"),
-    
-    ## STROMAL CELL LABEL ##
     cell_type = recode(cell_type, "Stromal cells" = str_c(cell_type, " (DN)")),
     
     cell_type_clst = if_else(
@@ -445,6 +445,30 @@ so <- so %>%
       str_c(cell_type, "-", !!sym(type_clst_clmn)),
       cell_type
     )
+  )
+
+# Classify B/T/NK cells
+so <- so %>%
+  classify_mod_score(
+    feats    = c(`NK cells` = "Nkg7"),
+    cutoff   = 2,
+    prefix   = "nk",
+    clst_col = type_clst_clmn,
+    type_col = "cell_type"
+  ) %>%
+  classify_mod_score(
+    feats    = c(`T cells` = "Cd3e"),
+    cutoff   = 1,
+    prefix   = "t",
+    clst_col = type_clst_clmn,
+    type_col = "cell_type"
+  ) %>%
+  classify_mod_score(
+    feats    = c(`B cells` = "Cd79a"),
+    cutoff   = 1,
+    prefix   = "b",
+    clst_col = type_clst_clmn,
+    type_col = "cell_type"
   )
 
 # Classify endothelial cells
@@ -511,11 +535,12 @@ so_mac <- so_mac %>%
   )
 
 # Cluster each treatment separately
-so_mac_int <- set_names(treats) %>%
+so_mac_int <- params$samples %>%
+  set_names() %>%
   map(~ {
     so_mac %>%
       subset_sobj(
-        treatment == .x,
+        orig.ident == .x,
         dims         = 1:40,
         rsln         = c(0.5, 1, 2),
         regress_vars = c("pct_mito", "nCount_RNA")
@@ -554,12 +579,35 @@ so_mac_int <- so_mac_int %>%
   FindClusters(resolution = c(0.5, 1, 2)) %>%
   AddMetaData(FetchData(., c("UMAP_1", "UMAP_2")))
 
+DefaultAssay(so_mac_int) <- "RNA"
+
 int_clst_clmn <- "integrated_snn_res.1"
+```
+
+```{r "adjust macrophage annotations", eval = create_so}
+# Classify B/T/NK cells
+so_mac_int <- so_mac_int %>%
+  classify_markers(
+    feats = "Cd79a",
+    filt  = Cd79a > 1,
+    type_label = "B cells",
+    clst_col = int_clst_clmn,
+    type_col = "cell_type"
+  ) %>%
+  classify_markers(
+    feats = "Ptprc",
+    filt  = Ptprc > 0.5,
+    type_label = "unassigned",
+    clst_col = int_clst_clmn,
+    type_col = "cell_type"
+  )
 ```
 
 ```{r "macrophage subsets", eval = create_so}
 # Format culemann gene lists
 # Cx3cr1 is tagged with TdTomato
+DefaultAssay(so_mac_int) <- "integrated"
+
 feats <- culemann_genes %>%
   imap(~ {
     fts <- .x %>%
@@ -578,6 +626,8 @@ feats <- culemann_genes %>%
   }) %>%
   flatten()
 
+DefaultAssay(so_mac_int) <- "RNA"
+
 # Add module scores
 mod_clmns <- set_names(
   str_c(feat_lvls, seq_along(feat_lvls)),
@@ -587,10 +637,10 @@ mod_clmns <- set_names(
 so_mac_int <- so_mac_int %>%
   mutate_meta(dplyr::select, -any_of(names(feats))) %>%
   AddModuleScore(
-    feats,
+    features = feats,
     name = names(feats),
     seed = 42,
-    ctrl = 35
+    ctrl = 25
   ) %>%
   mutate_meta(dplyr::rename, !!!syms(mod_clmns))
 
@@ -598,11 +648,11 @@ feats_use <- feat_lvls
 
 # Module score cutoffs for assigning annotations
 ann_key <- c(
-  AQP1_interstitial      = 0.3,
-  CCR2_IL1B_infiltrating = 0.45,
-  CCR2_ARG1_infiltrating = 0.75,
+  AQP1_interstitial      = -0.1,
+  CCR2_IL1B_infiltrating = 0.3,
+  CCR2_ARG1_infiltrating = 0.6,
   CX3CR1_lining          = 0.75,
-  RELMa_interstitial     = 0.8
+  RELMa_interstitial     = 0.61
 )
 
 # Add subset labels to object
@@ -631,7 +681,9 @@ so_mac_int <- so_mac_int %>%
     mac_type = replace_na(mac_type, "unassigned"),
     mac_type = str_remove(mac_type, ".+_(?=infiltrating)")
   )
+```
 
+```{r "MACROPHAGE SUBSET PLOTS", eval = FALSE}
 # Plot modules scores for each subset
 cutoffs <- tibble(
   name   = names(ann_key),
@@ -652,6 +704,42 @@ mod_plt <- so_mac_int %>%
 
   facet_wrap(~ name, scale = "free", nrow = 1) +
   scale_x_discrete(label = (function(x) str_extract(x, "^[0-9]+")))
+
+so_mac_int %>%
+  subset(integrated_snn_res.1 != "6") %>%
+  plot_scatter(
+    "mac_type",
+    group_col = "orig.ident",
+    size = 0.5
+  )
+
+so_mac_int %>%
+  plot_scatter(
+    int_clst_clmn,
+    group_col = "orig.ident",
+    size = 0.5,
+    top = "14"
+  )
+
+so_mac_int %>%
+  plot_scatter(
+    "Cd79a",
+    group_col = "orig.ident",
+    size = 0.5,
+    plot_colors = c("lightblue", "white", "red")
+  )
+
+so_mac_int %>%
+  plot_violin(
+    "Nkg7",
+    cluster_col = int_clst_clmn,
+    group_col = "mac_type",
+    method    = "boxplot",
+    size = 0.5,
+    top = 40
+    # plot_colors = c("lightblue", "white", "red")
+  )
+
 ```
 
 ```{r "t cell objects", eval = create_so}

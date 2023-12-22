@@ -1041,6 +1041,42 @@ classify_mod_score <- function(so_in, feats, prefix, cutoff = 1, clst_col, type_
   res
 }
 
+#' Classify cell types based on cluster mean expression
+#' 
+#' @param so_in Seurat object.
+#' @param feats List of features to use for classifying clusters
+#' @param filt Expression to use for filtering clusters, e.g. Cd3e < 0.1
+#' @param type Cell type label to use for cells identified by filtering
+#' expression
+#' @param clst_col meta.data column containing cell clusters to use for
+#' calculating mean expression.
+#' @param type_col meta.data column to add cell type label.
+#' @param summary_fn Function to use for summarizing marker gene expression.
+#' @return Seurat object containing new cell type classifications.
+#' @export
+classify_markers <- function(so_in, feats, filt, type_label, clst_col, type_col,
+                             summary_fn = mean) {
+  clsts <- so_in %>%
+    FetchData(c(feats, clst_col, type_col)) %>%
+    group_by(!!sym(clst_col)) %>%
+    summarize(across(all_of(feats), summary_fn), .groups = "drop") %>%
+    filter({{filt}}) %>%
+    pull(clst_col) %>%
+    as.character()
+  
+  res <- so_in %>%
+    mutate_meta(
+      mutate,
+      !!sym(type_col) := ifelse(
+        !!sym(clst_col) %in% clsts,
+        type_label,
+        !!sym(type_col)
+      )
+    )
+  
+  res
+}
+
 #' Export counts and meta.data tables
 #' 
 #' @param sobj_in Seurat object
