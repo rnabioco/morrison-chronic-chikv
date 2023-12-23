@@ -28,6 +28,7 @@ library(DoubletFinder)
 library(M3Drop)
 library(presto)
 library(gprofiler2)
+library(harmony)
 library(qs)
 
 # Bioconductor
@@ -520,98 +521,71 @@ so <- so %>%
 so_mac <- so %>%
   subset_sobj(
     cell_type == "Macrophages",
-    var_p        = 0.001,
-    dims         = 1:50,
-    regress_vars = "pct_mito",
-    rsln         = c(0.5, 1, 2)
+    var_p = 0.001,
+    dims  = 1:50,
+    rsln  = c(0.5, 1, 2)
   )
 
-# Clustify macrophages
+# Integrate samples
 so_mac <- so_mac %>%
-  mutate_meta(dplyr::select, -starts_with("UMAP")) %>%
-  clustify(
-    ref_mat = ref_immgen,
-    cluster_col = mac_clst_clmn
+  integrate_sobjs(
+    group_vars = "orig.ident",
+    method     = "harmony",
+    dims       = 1:40,
+    resolution = c(0.5, 1, 2)
   )
 
-# Cluster each treatment separately
-so_mac_int <- params$samples %>%
-  set_names() %>%
-  map(~ {
-    so_mac %>%
-      subset_sobj(
-        orig.ident == .x,
-        dims         = 1:40,
-        rsln         = c(0.5, 1, 2),
-        regress_vars = c("pct_mito", "nCount_RNA")
+# Remove contaminating cells
+int_clst_clmn <- "RNA_snn_res.2"
+
+so_mac <- so_mac %>%
+  classify_markers(
+    feats      = "Cd79a",
+    filt       = Cd79a > 0.5,
+    type_label = "B cells",
+    clst_col   = int_clst_clmn,
+    type_col   = "cell_type"
+  ) %>%
+  classify_markers(
+    feats      = "Ptprc",
+    filt       = Ptprc < 0.5,
+    type_label = "unassigned",
+    clst_col   = int_clst_clmn,
+    type_col   = "cell_type"
+  )
+
+# Adjust cell type labels
+typ_data <- FetchData(so_mac, "cell_type")
+
+so <- so %>%
+  AddMetaData(typ_data, col.name = "new_type") %>%
+  mutate_meta(~ {
+    .x %>%
+      mutate(
+        cell_type = ifelse(!is.na(new_type), new_type, cell_type),
+        new_type  = NULL
       )
   })
 
-# Integration features
-features <- SelectIntegrationFeatures(object.list = so_mac_int)
-
-# Scale data using integration features
-so_mac_int <- so_mac_int %>%
-  map(~ {
-    .x %>%
-      ScaleData(features = features) %>%
-      RunPCA(features = features)
-  })
-
-# Get integration anchors and integrate
-int_anchors <- so_mac_int %>%
-  FindIntegrationAnchors(
-    anchor.features = features,
-    reduction = "rpca"
-  )
-
-so_mac_int <- int_anchors %>%
-  IntegrateData(normalization.method = "LogNormalize")
-
-# Scale and cluster integrated data
-DefaultAssay(so_mac_int) <- "integrated"
-
-so_mac_int <- so_mac_int %>%
-  ScaleData() %>%
-  RunPCA() %>%
-  RunUMAP(dims = 1:30) %>%
-  FindNeighbors(dims = 1:30) %>%
-  FindClusters(resolution = c(0.5, 1, 2)) %>%
-  AddMetaData(FetchData(., c("UMAP_1", "UMAP_2")))
-
-DefaultAssay(so_mac_int) <- "RNA"
-
-int_clst_clmn <- "integrated_snn_res.1"
-```
-
-```{r "adjust macrophage annotations", eval = create_so}
-
-## LEFT OFF HERE
-## NEED TO ADJUST ANNOTATIONS, REPROCESS, UPDATE ORIGINAL OBJECT
-
-# Classify B/T/NK cells
-so_mac_int <- so_mac_int %>%
-  classify_markers(
-    feats = "Cd79a",
-    filt  = Cd79a > 1,
-    type_label = "B cells",
-    clst_col = int_clst_clmn,
-    type_col = "cell_type"
+# Reprocess and integrate samples
+so_mac <- so_mac %>%
+  subset_sobj(
+    cell_type == "Macrophages",
+    var_p = 0.001,
+    dims  = 1:50,
+    rsln  = c(0.5, 1, 2)
   ) %>%
-  classify_markers(
-    feats = "Ptprc",
-    filt  = Ptprc < 0.5,
-    type_label = "unassigned",
-    clst_col = int_clst_clmn,
-    type_col = "cell_type"
+  integrate_sobjs(
+    group_vars = "orig.ident",
+    method     = "harmony",
+    dims       = 1:40,
+    resolution = c(0.5, 1, 2)
   )
 ```
 
 ```{r "macrophage subsets", eval = create_so}
 # Format culemann gene lists
 # Cx3cr1 is tagged with TdTomato
-DefaultAssay(so_mac_int) <- "integrated"
-
 feats <- culemann_genes %>%
   imap(~ {
     fts <- .x %>%
@@ -625,12 +599,10 @@ feats <- culemann_genes %>%
     fts %>%
       map(~ {
         .x[.x == "TdTomato"] <- "Cx3cr1"
-        .x[.x %in% VariableFeatures(so_mac_int)]
+        .x[.x %in% VariableFeatures(so_mac)]
       })
   }) %>%
   flatten()
-
-DefaultAssay(so_mac_int) <- "RNA"
 
 # Add module scores
 mod_clmns <- set_names(
@@ -638,13 +610,12 @@ mod_clmns <- set_names(
   feat_lvls
 )
 
-so_mac_int <- so_mac_int %>%
+so_mac <- so_mac %>%
   mutate_meta(dplyr::select, -any_of(names(feats))) %>%
   AddModuleScore(
     features = feats,
     name = names(feats),
-    seed = 42,
-    ctrl = 25
+    seed = 42
   ) %>%
   mutate_meta(dplyr::rename, !!!syms(mod_clmns))
 
@@ -660,7 +631,7 @@ ann_key <- c(
 )
 
 # Add subset labels to object
-so_mac_int <- so_mac_int %>%
+so_mac <- so_mac %>%
   mutate_meta(mutate, mac_type = as.character(NA))
 
 ann_key %>%
@@ -668,7 +639,7 @@ ann_key %>%
     clmn <- .y
     cut  <- .x
     
-    so_mac_int <<- so_mac_int %>%
+    so_mac <<- so_mac %>%
       mutate_meta(~ {
         .x %>%
           group_by(!!sym(int_clst_clmn)) %>%
@@ -679,7 +650,7 @@ ann_key %>%
       })
   })
 
-so_mac_int <- so_mac_int %>%
+so_mac <- so_mac %>%
   mutate_meta(
     mutate,
     mac_type = replace_na(mac_type, "unassigned"),
@@ -694,7 +665,15 @@ cutoffs <- tibble(
   cutoff = ann_key
 )
 
-mod_plt <- so_mac_int %>%
+so_mac %>%
+  plot_frequency(
+    "mac_type",
+    cluster_col = "orig.ident",
+    group_col = "treatment",
+    p_method = "edgeR"
+  )
+
+so_mac %>%
   FetchData(c(int_clst_clmn, "mac_type", feats_use)) %>%
   pivot_longer(all_of(feats_use)) %>%
   
@@ -747,46 +726,63 @@ so_mac_int %>%
 ```
 
 ```{r "t cell objects", eval = create_so}
-# Subset T cells
+# Subset macrophages
 so_t <- so %>%
   subset_sobj(
-    cell_type %in% c("T cells", "Tgd"),
-    var_p        = 0.001,
-    dims         = 1:50,
-    rsln         = 1,
-    regress_vars = "pct_mito"
+    cell_type == "T cells",
+    var_p = 0.001,
+    dims  = 1:40,
+    rsln  = c(0.5, 1, 2)
   )
 
-so_t_int <- so_t %>%
-  integrate_sobj("treatment", rsln = 1)
+# Integrate samples
+so_t <- so_t %>%
+  integrate_sobjs(
+    group_vars = "orig.ident",
+    method     = "harmony",
+    dims       = 1:40,
+    resolution = c(0.5, 1, 2)
+  )
 
-# Additional filtering based on Cd3 expression
-DefaultAssay(so_t_int) <- "RNA"
+# Remove contaminating cells
+int_clst_clmn <- "RNA_snn_res.1"
 
-so_t_int <- so_t_int %>%
-  AddMetaData(FetchData(., "Cd3e")) %>%
+so_t <- so_t %>%
+  classify_markers(
+    feats      = "Cd3e",
+    filt       = Cd3e < 0.5,
+    type_label = "unassigned",
+    clst_col   = int_clst_clmn,
+    type_col   = "cell_type"
+  )
+
+# Adjust cell type labels
+typ_data <- FetchData(so_t, "cell_type")
+
+so <- so %>%
+  AddMetaData(typ_data, col.name = "new_type") %>%
   mutate_meta(~ {
     .x %>%
-      group_by(seurat_clusters) %>%
-      mutate(pct_cd3 = length(Cd3e[Cd3e > 0]) / n()) %>%
-      ungroup()
-  }) %>%
-  subset(pct_cd3 > 0.5)
+      mutate(
+        cell_type = ifelse(!is.na(new_type), new_type, cell_type),
+        new_type  = NULL
+      )
+  })
 
-# Reprocess after filtering
-DefaultAssay(so_t_int) <- "integrated"
-
-so_t_int <- so_t_int %>%
-  ScaleData(vars.to.regress = "pct_mito") %>%
-  RunPCA() %>%
-  RunUMAP(dims = 1:40) %>%
-  FindNeighbors(dims = 1:40) %>%
-  FindClusters(resolution = c(0.5, 1, 1.5, 2)) %>%
-  AddMetaData(FetchData(., str_c("UMAP_", 1:2)))
-
-DefaultAssay(so_t_int) <- "RNA"
-
-int_clst_clmn <- "integrated_snn_res.1"
+# Reprocess and integrate samples
+so_t <- so_t %>%
+  subset_sobj(
+    cell_type == "T cells",
+    var_p = 0.001,
+    dims  = 1:40,
+    rsln  = c(0.5, 1, 2)
+  ) %>%
+  integrate_sobjs(
+    group_vars = "orig.ident",
+    method     = "harmony",
+    dims       = 1:40,
+    resolution = c(0.5, 1, 2)
+  )
 ```
 
 ```{r "t cell subsets", eval = create_so}
@@ -904,19 +900,15 @@ so <- so %>%
 
 ```{r "save objects", eval = create_so}
 save_objs(so, ob_dir = so_dir)
-
 save_objs(so_mac, ob_dir = so_dir)
-save_objs(so_mac_int, ob_dir = so_dir)
-
-save_objs(so_t, obj_dir = so_dir)
-save_objs(so_t_int, obj_dir = so_dir)
+save_objs(so_t, ob_dir = so_dir)
 ```
 
 ```{r "load objects"}
 # Load Seurat objects
-so         <- qread(here(so_dir, "so.qs"))
-so_mac_int <- qread(here(so_dir, "so_mac_int.qs"))
-so_t_int   <- qread(here(so_dir, "so_t_int.qs"))
+so     <- qread(here(so_dir, "so.qs"))
+so_mac <- qread(here(so_dir, "so_mac.qs"))
+so_t   <- qread(here(so_dir, "so_t.qs"))
 
 # FOR NOW REMOVE CLUSTER 8, UNCLEAR IF THESE ARE T CELLS
 so_t_int <- so_t_int %>%

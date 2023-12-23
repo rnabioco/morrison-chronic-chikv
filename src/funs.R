@@ -716,6 +716,102 @@ run_m3drop <- function(sobj_in, assay = "RNA", var_p = 0.05) {
   sobj_in
 }
 
+#' Integrate Seurat objects
+#' 
+#' @param obj Input object
+#' @param group_vars Variable(s) to using for grouping cells. Must be a single
+#' variable if method is 'Seurat'.
+#' @noRd
+integrate_sobjs <- function(so_in, group_vars = "orig.ident", method = "Seurat",
+                            dims = 1:40, resolution = c(0.5, 1, 2)) {
+  
+  # Harmony integration
+  if (identical(method, "harmony")) {
+    rm_clmns <- c(str_c("UMAP_", 1:2), str_c("hUMAP_", 1:2))
+    
+    res <- so_in %>%
+      mutate_meta(dplyr::select, -any_of(rm_clmns)) %>%
+      run_m3drop(assay = "RNA", var_p = 0.001) %>%
+      ScaleData() %>%
+      RunPCA() %>%
+      RunUMAP(dims = dims) %>%
+      AddMetaData(FetchData(., c("UMAP_1", "UMAP_2")))
+    
+    res <- res %>%
+      RunHarmony(
+        group.by.vars = group_vars,
+        dims = dims,
+        plot_convergence = TRUE
+      ) %>%
+      RunUMAP(
+        dims = dims,
+        reduction      = "harmony",
+        reduction.name = "humap",
+        reduction.key  = "hUMAP_"
+      ) %>%
+      FindNeighbors(reduction = "harmony", dims = dims) %>%
+      FindClusters(resolution = resolution) %>%
+      AddMetaData(FetchData(., c("hUMAP_1", "hUMAP_2")))
+    
+    return(res)
+  }
+  
+  ## FIX THIS
+  # Cluster each treatment separately
+  int_vars <- set_names(unique(so_in@meta.data[[group_vars]]))
+  
+  res <- int_vars %>%
+    map(~ {
+      so_in %>%
+        subset_sobj(
+          !!sym(group_vars) == .x,
+          dims = dims,
+          rsln = resolution
+        )
+    })
+  
+  # Integration features
+  features <- SelectIntegrationFeatures(object.list = res)
+  
+  # Scale data using integration features
+  res <- res %>%
+    map(~ {
+      .x %>%
+        ScaleData(features = features) %>%
+        RunPCA(features = features)
+    })
+  
+  # Get integration anchors and integrate
+  int_anchors <- res %>%
+    FindIntegrationAnchors(
+      anchor.features = features,
+      reduction = "rpca"
+    )
+  
+  res <- int_anchors %>%
+    IntegrateData(normalization.method = "LogNormalize")
+  
+  # Scale and cluster integrated data
+  DefaultAssay(res) <- "integrated"
+  
+  res <- res %>%
+    ScaleData() %>%
+    RunPCA() %>%
+    RunUMAP(
+      dims = dims,
+      reduction      = "pca",
+      reduction.name = "intumap",
+      reduction.key  = "intUMAP_"
+    ) %>%
+    FindNeighbors(dims = dims) %>%
+    FindClusters(resolution = resolution) %>%
+    AddMetaData(FetchData(., c("intUMAP_1", "intUMAP_2")))
+  
+  DefaultAssay(res) <- "RNA"
+  
+  res
+}
+
 #' Create labeller function to add cell n labels
 #' 
 #' @param sobj_in Seurat object or data.frame containing plot data.
