@@ -19,16 +19,22 @@ params:
   geo_dir:      "results/geo"             # Directory for GEO submission
   overwrite:    false                     # Should tables be overwritten if they already exist?
   so_dir:       "~/Dropbox/Ryan/Projects/morrison-chronic-chikv/results/sobjs" # Directory for Seurat objects
-  metrics:      "count_metrics.csv"       # Cell Ranger metrics
-  gene_min:     250                       # Min number of detected genes per cell
-  gene_max:     5500                      # Max number of detected genes per cell
-  mito_max:     30                        # Max percentage mito reads per cells
-  rm_doublets:  true                      # Should doublets be removed using DoubletFinder?
-  type_res:     5                         # Clustering resolution for annotating cell types
-  mac_res:      1                         # Clustering resolution for annotating macrophages
-  lec_res:      5                         # Clustering resolution for annotating LECs
-  fib_res:      5                         # Clustering resolution for annotating fibroblasts/stromal cells
-  tm:           "28dpi"                   # Label for time point
+  metrics:     "count_metrics.csv"       # Cell Ranger metrics
+  gene_min:    250                       # Min number of detected genes per cell
+  gene_max:    5500                      # Max number of detected genes per cell
+  mito_max:    30                        # Max percentage mito reads per cells
+  rm_doublets: true                      # Should doublets be removed using DoubletFinder?
+  type_res:    5                         # Resolution for annotating cell types
+  mac_res:     2                         # Resolution for annotating macrophages
+  t_res:       1                         # Resolution for annotating T cells
+  fib_res:     5                         # Resolution for annotating fibroblasts cells
+  tm:          "28dpi"                   # Label for time point
+  rslns:
+    value:
+      type: 5
+      mac:  2
+      t:    1
+      fib:  5
   samples:
     - "U1"
     - "U2"

@@ -1,8 +1,3 @@
----
-output: html_document
-editor_options: 
-  chunk_output_type: console
----
 
 ```{r "packages", include = FALSE}
 # Tidyverse
@@ -60,7 +55,7 @@ geo_dir   <- here(params$geo_dir)
 metrics   <- here(params$metrics)
 
 # Should objects be created
-load_objs <- "so_mac_int"
+load_objs <- c("so", "so_mac", "so_t")
 
 files_in <- load_objs %>%
   str_c(".qs") %>%
@@ -76,20 +71,8 @@ rslns <- c(3.4, 4.2, 5)
 type_clsts <- rslns %>%
   set_clst_names()
 
-type_clst_clmn <- type_clsts %>%
-  pluck(as.character(params$type_res), "clst")
-
-mac_clsts <- params$mac_res %>%
-  set_clst_names("mac_")
-
-mac_clst_clmn <- mac_clsts %>%
-  pluck(as.character(params$mac_res), "clst")
-
-fib_clsts <- rslns %>%
-  set_clst_names("fib_")
-
-fib_clst_clmn <- fib_clsts %>%
-  pluck(as.character(params$fib_res), "clst")
+final_clsts <- params$rslns %>%
+  map(~ str_c("RNA_snn_res.", .x))
 
 # Cell types to use for identifying subsets
 lec_cell_types <- "Endothelial cells"
@@ -443,7 +426,7 @@ so <- so %>%
     
     cell_type_clst = if_else(
       cell_type == "unassigned",
-      str_c(cell_type, "-", !!sym(type_clst_clmn)),
+      str_c(cell_type, "-", !!sym(final_clsts$type)),
       cell_type
     )
   )
@@ -454,21 +437,21 @@ so <- so %>%
     feats    = c(`NK cells` = "Nkg7"),
     cutoff   = 2,
     prefix   = "nk",
-    clst_col = type_clst_clmn,
+    clst_col = final_clsts$type,
     type_col = "cell_type"
   ) %>%
   classify_mod_score(
     feats    = c(`T cells` = "Cd3e"),
     cutoff   = 1,
     prefix   = "t",
-    clst_col = type_clst_clmn,
+    clst_col = final_clsts$type,
     type_col = "cell_type"
   ) %>%
   classify_mod_score(
     feats    = c(`B cells` = "Cd79a"),
     cutoff   = 1,
     prefix   = "b",
-    clst_col = type_clst_clmn,
+    clst_col = final_clsts$type,
     type_col = "cell_type"
   )
 
@@ -480,7 +463,7 @@ so <- so %>%
     feats    = endo_feats,
     cutoff   = 0.5,
     prefix   = "endo",
-    clst_col = type_clst_clmn,
+    clst_col = final_clsts$type,
     type_col = "cell_type"
   )
 
@@ -492,7 +475,7 @@ so <- so %>%
     feats    = muscl_feats,
     cutoff   = 1,
     prefix   = "muscle",
-    clst_col = type_clst_clmn,
+    clst_col = final_clsts$type,
     type_col = "cell_type"
   )
 
@@ -504,7 +487,7 @@ so <- so %>%
     feats    = muscl_feats,
     cutoff   = 0.75,
     prefix   = "sat",
-    clst_col = type_clst_clmn,
+    clst_col = final_clsts$type,
     type_col = "cell_type"
   )
 
@@ -536,21 +519,19 @@ so_mac <- so_mac %>%
   )
 
 # Remove contaminating cells
-int_clst_clmn <- "RNA_snn_res.2"
-
 so_mac <- so_mac %>%
   classify_markers(
     feats      = "Cd79a",
     filt       = Cd79a > 0.5,
     type_label = "B cells",
-    clst_col   = int_clst_clmn,
+    clst_col   = final_clsts$mac,
     type_col   = "cell_type"
   ) %>%
   classify_markers(
     feats      = "Ptprc",
     filt       = Ptprc < 0.5,
     type_label = "unassigned",
-    clst_col   = int_clst_clmn,
+    clst_col   = final_clsts$mac,
     type_col   = "cell_type"
   )
 
@@ -642,7 +623,7 @@ ann_key %>%
     so_mac <<- so_mac %>%
       mutate_meta(~ {
         .x %>%
-          group_by(!!sym(int_clst_clmn)) %>%
+          group_by(!!sym(final_clsts$mac)) %>%
           mutate(
             mac_type = ifelse(mean(!!sym(clmn)) > cut, clmn, mac_type)
           ) %>%
@@ -674,11 +655,11 @@ so_mac %>%
   )
 
 so_mac %>%
-  FetchData(c(int_clst_clmn, "mac_type", feats_use)) %>%
+  FetchData(c(final_clsts$mac, "mac_type", feats_use)) %>%
   pivot_longer(all_of(feats_use)) %>%
   
   mutate(
-    cluster = str_c(!!sym(int_clst_clmn), name),
+    cluster = str_c(!!sym(final_clsts$mac), name),
     cluster = fct_reorder(cluster, value, mean, .desc = TRUE)
   ) %>%
   ggplot(aes(cluster, value, fill = mac_type)) +
@@ -698,7 +679,7 @@ so_mac_int %>%
 
 so_mac_int %>%
   plot_scatter(
-    int_clst_clmn,
+    final_clsts$mac,
     group_col = "orig.ident",
     size = 0.5,
     top = "14"
@@ -715,7 +696,7 @@ so_mac_int %>%
 so_mac_int %>%
   plot_violin(
     "Nkg7",
-    cluster_col = int_clst_clmn,
+    cluster_col = final_clsts$mac,
     group_col = "mac_type",
     method    = "boxplot",
     size = 0.5,
@@ -725,7 +706,7 @@ so_mac_int %>%
 
 ```
 
-```{r "t cell objects", eval = create_so}
+```{r "t cell object", eval = create_so}
 # Subset macrophages
 so_t <- so %>%
   subset_sobj(
@@ -745,14 +726,12 @@ so_t <- so_t %>%
   )
 
 # Remove contaminating cells
-int_clst_clmn <- "RNA_snn_res.1"
-
 so_t <- so_t %>%
   classify_markers(
     feats      = "Cd3e",
     filt       = Cd3e < 0.5,
     type_label = "unassigned",
-    clst_col   = int_clst_clmn,
+    clst_col   = final_clsts$t,
     type_col   = "cell_type"
   )
 
@@ -786,6 +765,105 @@ so_t <- so_t %>%
 ```
 
 ```{r "t cell subsets", eval = create_so}
+# Classify T effector subsets
+x <- so_t %>%
+  mutate_meta(mutate, t_type = as.character(NA)) %>%
+  classify_markers(
+    feats      = c("Cd8a", "Cd44", "Sell"),
+    filt       = Cd8a > 0.5 & Cd44 > 0.5 & Sell < 0.5,
+    type_label = "CD8 Teff",
+    clst_col   = final_clsts$t,
+    type_col   = "t_type"
+  ) %>%
+  classify_markers(
+    feats      = c("Cd4", "Cd44", "Sell"),
+    filt       = Cd4 > 0.5 & Cd44 > 0.5 & Sell < 0.5,
+    type_label = "CD4 Teff",
+    clst_col   = final_clsts$t,
+    type_col   = "t_type"
+  )
+
+x <- x %>%
+  classify_markers(
+    feats      = "Foxp3",
+    filt       = Foxp3 > 0.5,
+    type_label = "Treg",
+    clst_col   = final_clsts$t,
+    type_col   = "t_type"
+  )
+
+# Classify Tgd and Tregs
+x <- x %>%
+  classify_markers(
+    feats      = "Trdc",
+    filt       = Trdc > 0.5,
+    type_label = "Tgd",
+    clst_col   = final_clsts$t,
+    type_col   = "t_type"
+  ) %>%
+  classify_markers(
+    feats      = "Foxp3",
+    filt       = Foxp3 > 0.5,
+    type_label = "Treg",
+    clst_col   = final_clsts$t,
+    type_col   = "t_type"
+  )
+
+
+
+
+
+# gns <- c("Sell", "Cd44", "Il7r", "Trdc", "Foxp3", "Ccr7", "Klrg1", "Cd69")
+gns <- c("Sell", "Cd44", "Cd8a", "Cd4", "Trdc", "Foxp3", "Il7r")
+
+x %>%
+  FetchData(c(final_clsts$t, "t_type", gns)) %>%
+  pivot_longer(all_of(gns)) %>%
+  
+  mutate(
+    cluster = str_c(!!sym(final_clsts$t), name),
+    cluster = fct_reorder(cluster, value, mean, .desc = TRUE)
+  ) %>%
+  ggplot(aes(cluster, value, color = t_type)) +
+  geom_boxplot() +
+  # geom_hline(aes(yintercept = cutoff), data = cutoffs, linetype = 2) +
+
+  facet_wrap(~ name, scale = "free", nrow = 1) +
+  scale_x_discrete(label = (function(x) str_extract(x, "^[0-9]+"))) +
+  theme_bw()
+
+x <- so_t %>%
+  clustify(
+    ref_mat = ref_immgen,
+    cluster_col = final_clsts$t
+  )
+
+so %>%
+  plot_scatter(
+    "Cd3e",
+    "UMAP_1", "UMAP_2",
+    group_col = "treatment",
+    plot_colors = c("lightblue", "white", "red"),
+    size = 0.1
+  )
+
+x %>%
+  plot_scatter(
+    "Sell",
+    "hUMAP_1", "hUMAP_2",
+    group_col = "treatment",
+    size = 2,
+    plot_colors = c("lightblue", "white", "red")
+  )
+
+x %>%
+  plot_scatter(
+    "t_type",
+    "hUMAP_1", "hUMAP_2",
+    group_col = "treatment",
+    size = 2
+  )
+
 # Assign T cell subsets
 cluster_idents <- c(
   "3" = "CD4 naive",    # Cd44-/CD62L+
@@ -802,7 +880,7 @@ cluster_idents <- c(
 so_t_int <- so_t_int %>%
   mutate_meta(
     mutate,
-    t_type = cluster_idents[as.character(!!sym(int_clst_clmn))]
+    t_type = cluster_idents[as.character(!!sym(final_clsts$t))]
   )
 
 # FOR NOW REMOVE CLUSTER 8, UNCLEAR IF THESE ARE T CELLS
@@ -831,7 +909,7 @@ so_t_int <- so_t_int %>%
 #     so_t_int %>%
 #       plot_violin(
 #         .x,
-#         cluster_col = int_clst_clmn,
+#         cluster_col = final_clsts$t,
 #         method      = "boxplot"
 #       ) +
 #       facet_wrap(~ treatment) +
@@ -909,10 +987,6 @@ save_objs(so_t, ob_dir = so_dir)
 so     <- qread(here(so_dir, "so.qs"))
 so_mac <- qread(here(so_dir, "so_mac.qs"))
 so_t   <- qread(here(so_dir, "so_t.qs"))
-
-# FOR NOW REMOVE CLUSTER 8, UNCLEAR IF THESE ARE T CELLS
-so_t_int <- so_t_int %>%
-  subset(integrated_snn_res.1 != "8")
 
 # Load raw meta.data
 so_raw_df <- read_tsv(here(so_dir, "so_raw.tsv.gz"))
@@ -1059,8 +1133,7 @@ chikv_type_cols <- c(subtype_cols, chikv_type_cols)
 chikv_type_cols[chikv_grps[1]] <- fade_2
 
 # Macrophage cluster colors
-mac_clst_cols <- so_mac[[mac_clst_clmn]] %>%
-  pull(mac_clst_clmn) %>%
+mac_clst_cols <- so_mac@meta.data[[final_clsts$mac]] %>%
   unique() %>%
   as.numeric() %>%
   sort() %>%

@@ -116,6 +116,8 @@ set_clst_names <- function(rslns, prefix = "res_", assay = "RNA") {
       type = str_c(prefix, .x)
     ))
   
+  if (length(res) == 1) res <- flatten(res)
+  
   res
 }
 
