@@ -23,7 +23,7 @@ params:
   gene_min:    250                       # Min number of detected genes per cell
   gene_max:    5500                      # Max number of detected genes per cell
   mito_max:    30                        # Max percentage mito reads per cells
-  rm_doublets: true                      # Should doublets be removed using DoubletFinder?
+  rm_doublets: true                      # Remove doublets
   type_res:    5                         # Resolution for annotating cell types
   mac_res:     2                         # Resolution for annotating macrophages
   t_res:       1                         # Resolution for annotating T cells

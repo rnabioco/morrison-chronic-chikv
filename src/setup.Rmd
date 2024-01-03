@@ -46,23 +46,23 @@ opts_chunk$set(
 )
 
 # Adjust directory paths based on user input
-so_dir    <- params$so_dir
-enr_dir   <- params$enr_dir
-unenr_dir <- params$unenr_dir
-table_dir <- here(params$table_dir)
-ref_dir   <- here(params$ref_dir)
-geo_dir   <- here(params$geo_dir)
-metrics   <- here(params$metrics)
+dirs <- c(
+  "so_dir", "enr_dir", "unenr_dir",
+  "table_dir", "ref_dir", "geo_dir", "metrics"
+)
+
+dirs <- dirs %>%
+  set_names() %>%
+  map(~ here(params[[.x]]))
 
 # Should objects be created
-load_objs <- c("so", "so_mac", "so_t")
+create_so <- c("so", "so_mac", "so_t")
 
-files_in <- load_objs %>%
-  str_c(".qs") %>%
-  here(so_dir, .)
-
-create_so <- files_in %>%
-  map_lgl(~ !file.exists(here(.x))) %>%
+create_so <- create_so %>%
+  map_lgl(~ {
+    fl <- here(dirs$so_dir, str_c(.x, ".qs"))
+    !file.exists(fl)
+  }) %>%
   any()
 
 # Clustering parameters
@@ -124,8 +124,8 @@ ref_fib <- cbind(ref_lymphnodestromal, ref_fib)
 ```{r "culemann gene lists"}
 # Gene lists from Culemann et al.
 culemann_genes <- list(
-  mock  = here(ref_dir, "2019_Culemann/table_s1.txt"),
-  CHIKV = here(ref_dir, "2019_Culemann/table_s2.txt")
+  mock  = here(dirs$ref_dir, "2019_Culemann/table_s1.txt"),
+  CHIKV = here(dirs$ref_dir, "2019_Culemann/table_s2.txt")
 )
 
 culemann_genes <- culemann_genes %>%
@@ -175,7 +175,7 @@ feat_lvls <- unlist(feat_key, use.names = FALSE)
 # Create Seurat object
 mats <- params$samples %>%
   set_names() %>%
-  map_chr(~ here(unenr_dir, .x, "outs/filtered_feature_bc_matrix"))
+  map_chr(~ here(undirs$enr_dir, .x, "outs/filtered_feature_bc_matrix"))
 
 sobjs <- mats %>%
   imap(~ create_virus_obj(
@@ -285,7 +285,7 @@ so_raw <- merge(sobjs[[1]], sobjs[-1])
 so_raw_df <- so_raw@meta.data %>%
   as_tibble(rownames = "cell_id")
 
-save_objs(so_raw, ob_dir = so_dir)
+save_objs(so_raw, ob_dir = dirs$so_dir)
 
 rm(sobjs, so_raw)
 ```
@@ -294,7 +294,7 @@ rm(sobjs, so_raw)
 # Create Seurat object for CHIKV-enriched data
 enr_mat <- params$samples %>%
   set_names() %>%
-  map_chr(~ here(enr_dir, .x, "outs/filtered_feature_bc_matrix"))
+  map_chr(~ here(dirs$enr_dir, .x, "outs/filtered_feature_bc_matrix"))
 
 so_enr <- enr_mat %>%
   imap(~ {
@@ -355,7 +355,7 @@ enr_counts <- so_enr_df %>%
     tot_nCount_RNA   = nCount_RNA + enr_nCount_RNA,
     tot_pct_CHIKV    = (tot_nCount_CHIKV / (tot_nCount_RNA + tot_nCount_CHIKV)) * 100,
     
-    tot_5     = CHIKV_5 + enr_5,
+    tot_5     = CHIKV_5     + enr_5,
     tot_sgRNA = CHIKV_sgRNA + enr_sgRNA,
     tot_neg   = CHIKV_neg   + enr_neg
   ) %>%
@@ -363,41 +363,21 @@ enr_counts <- so_enr_df %>%
   column_to_rownames("cell_id")
 
 # Add enriched counts to object
+# classify CHIKV-low/high cells
 so <- so %>%
-  AddMetaData(enr_counts)
+  AddMetaData(enr_counts) %>%
+  mutate_meta(
+    mutate,
+    chikv_grp = ifelse(tot_nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1])
+  )
 
 # Save enriched objects
 # Save data.frame with enriched counts
 # this includes cells not present in the original object
-save_objs(so_enr, ob_dir = so_dir)
+save_objs(so_enr, ob_dir = dirs$so_dir)
 
 so_enr_df %>%
-  write_tsv(here(so_dir, "so_enr.tsv.gz"))
-
-
-
-#### NEED TO FIX THIS ####
-# # Identify CHIKV low/high cells
-# # Do not cluster since <100 cells with CHIKV counts
-# sobjs <- sobjs %>%
-#   map(~ {
-#     .x %>%
-#       mutate_meta(
-#         mutate,
-#         chikv_grp = ifelse(nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1]),
-#         nCount_CHIKV_log = log10(nCount_CHIKV + 1)
-#       )
-#   })
-# 
-# so_df <- so@meta.data %>%
-#   as_tibble(rownames = "cell_id")
-# 
-# # Add enriched counts to Mac object
-# so_mac <- so_mac %>%
-#   AddMetaData(enr_counts)
-# 
-# so_mac_df <- so_mac@meta.data %>%
-#   as_tibble(rownames = "cell_id")
+  write_tsv(here(dirs$so_dir, "so_enr.tsv.gz"))
 ```
 
 ```{r "clustify types", eval = create_so}
@@ -1008,22 +988,23 @@ so <- so %>%
 ```
 
 ```{r "save objects", eval = create_so}
-save_objs(so, ob_dir = so_dir)
-save_objs(so_mac, ob_dir = so_dir)
-save_objs(so_t, ob_dir = so_dir)
+save_objs(so, ob_dir = dirs$so_dir)
+save_objs(so_mac, ob_dir = dirs$so_dir)
+save_objs(so_t, ob_dir = dirs$so_dir)
 ```
 
 ```{r "load objects"}
 # Load Seurat objects
-so     <- qread(here(so_dir, "so.qs"))
-so_mac <- qread(here(so_dir, "so_mac.qs"))
-so_t   <- qread(here(so_dir, "so_t.qs"))
+so     <- qread(here(dirs$so_dir, "so.qs"))
+so_df  <- read_tsv(here(dirs$so_dir, "so.tsv.gz"))
+so_mac <- qread(here(dirs$so_dir, "so_mac.qs"))
+so_t   <- qread(here(dirs$so_dir, "so_t.qs"))
 
 # Load raw meta.data
-so_raw_df <- read_tsv(here(so_dir, "so_raw.tsv.gz"))
+so_raw_df <- read_tsv(here(dirs$so_dir, "so_raw.tsv.gz"))
 
 # Load enriched meta.data
-so_enr_df <- read_tsv(here(so_dir, "so_enr.tsv.gz"))
+so_enr_df <- read_tsv(here(dirs$so_dir, "so_enr.tsv.gz"))
 ```
 
 ```{r "theme"}

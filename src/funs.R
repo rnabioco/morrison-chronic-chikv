@@ -7,7 +7,7 @@
 #' @param prfx Prefix to use for saved files. If set to NULL, the name of the object is used.
 #' @param ob_dir Directory to save files.
 #' @export
-save_objs <- function(ob_in, prfx = NULL, ob_dir = so_dir) {
+save_objs <- function(ob_in, prfx = NULL, ob_dir = dirs$so_dir) {
   
   if (is.null(prfx)) {
     prfx <- deparse(substitute(ob_in))
