@@ -766,34 +766,59 @@ so_t <- so_t %>%
 
 ```{r "t cell subsets", eval = create_so}
 # Classify T effector subsets
-x <- so_t %>%
+so_t <- so_t %>%
   mutate_meta(mutate, t_type = as.character(NA)) %>%
   classify_markers(
     feats      = c("Cd8a", "Cd44", "Sell"),
-    filt       = Cd8a > 0.5 & Cd44 > 0.5 & Sell < 0.5,
+    filt       = Cd8a > 0.5 & Cd44 > 1 & Sell < 0.75,
     type_label = "CD8 Teff",
     clst_col   = final_clsts$t,
     type_col   = "t_type"
   ) %>%
   classify_markers(
     feats      = c("Cd4", "Cd44", "Sell"),
-    filt       = Cd4 > 0.5 & Cd44 > 0.5 & Sell < 0.5,
+    filt       = Cd4 > 0.4 & Cd44 > 1 & Sell < 0.75,
     type_label = "CD4 Teff",
     clst_col   = final_clsts$t,
     type_col   = "t_type"
   )
 
-x <- x %>%
+# Classify naive subsets
+so_t <- so_t %>%
   classify_markers(
-    feats      = "Foxp3",
-    filt       = Foxp3 > 0.5,
-    type_label = "Treg",
+    feats      = c("Cd8a", "Sell", "Cd44"),
+    filt       = Cd8a > 0.15 & Sell > 0.75 & Cd44 < 1,
+    type_label = "CD8 naive",
+    clst_col   = final_clsts$t,
+    type_col   = "t_type"
+  ) %>%
+  classify_markers(
+    feats      = c("Cd4", "Sell", "Cd44"),
+    filt       = Cd4 > 0.4 & Sell > 0.75 & Cd44 < 1,
+    type_label = "CD4 naive",
+    clst_col   = final_clsts$t,
+    type_col   = "t_type"
+  )
+
+# Classify Tcm subsets
+so_t <- so_t %>%
+  classify_markers(
+    feats      = c("Cd8a", "Sell", "Cd44"),
+    filt       = Cd8a > 0.15 & Sell > 0.75 & Cd44 > 1,
+    type_label = "CD8 Tcm",
+    clst_col   = final_clsts$t,
+    type_col   = "t_type"
+  ) %>%
+  classify_markers(
+    feats      = c("Cd4", "Sell", "Cd44"),
+    filt       = Cd4 > 0.4 & Sell > 0.75 & Cd44 > 1,
+    type_label = "CD4 Tcm",
     clst_col   = final_clsts$t,
     type_col   = "t_type"
   )
 
 # Classify Tgd and Tregs
-x <- x %>%
+so_t <- so_t %>%
   classify_markers(
     feats      = "Trdc",
     filt       = Trdc > 0.5,
@@ -808,15 +833,13 @@ x <- x %>%
     clst_col   = final_clsts$t,
     type_col   = "t_type"
   )
+```
 
-
-
-
-
+```{r "T CELL SUBSET PLOTS", eval = FALSE}
 # gns <- c("Sell", "Cd44", "Il7r", "Trdc", "Foxp3", "Ccr7", "Klrg1", "Cd69")
-gns <- c("Sell", "Cd44", "Cd8a", "Cd4", "Trdc", "Foxp3", "Il7r")
+gns <- c("Sell", "Cd44", "Cd8a", "Cd4", "Trdc", "Foxp3", "Il7r", "Cd3e")
 
-x %>%
+so_t %>%
   FetchData(c(final_clsts$t, "t_type", gns)) %>%
   pivot_longer(all_of(gns)) %>%
   
@@ -838,13 +861,13 @@ x <- so_t %>%
     cluster_col = final_clsts$t
   )
 
-so %>%
+x %>%
   plot_scatter(
-    "Cd3e",
-    "UMAP_1", "UMAP_2",
+    "Sell",
+    "hUMAP_1", "hUMAP_2",
     group_col = "treatment",
     plot_colors = c("lightblue", "white", "red"),
-    size = 0.1
+    size = 2
   )
 
 x %>%
@@ -856,9 +879,17 @@ x %>%
     plot_colors = c("lightblue", "white", "red")
   )
 
-x %>%
+so_t %>%
   plot_scatter(
     "t_type",
+    "hUMAP_1", "hUMAP_2",
+    group_col = "treatment",
+    size = 2
+  )
+
+x %>%
+  plot_scatter(
+    final_clsts$t,
     "hUMAP_1", "hUMAP_2",
     group_col = "treatment",
     size = 2
