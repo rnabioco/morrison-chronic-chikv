@@ -284,9 +284,11 @@ create_sobj <- function(mat_dir, proj_name = "SeuratProject", hash_ids = NULL, a
 #' @return Seurat object
 #' @param mt_str String to use for identifying mitochondrial genes.
 #' @export
-create_virus_obj <- function(mat_dir, proj_name = "SeuratProject", gene_min = 250, gene_max = 5000,
-                             mito_max = 15, cells_min = 5, virus_min = Inf, virus_str = "^CHIKV",
-                             virus_assay = "CHIKV", mt_str = "^mt-") {
+create_virus_obj <- function(mat_dir, proj_name = "SeuratProject",
+                             gene_min = 250, gene_max = 5000, mito_max = 15,
+                             cells_min = 5, virus_min = Inf,
+                             virus_str = "^CHIKV", virus_assay = "CHIKV",
+                             mt_str = "^mt-") {
   
   rna_assay <- "RNA"
 
@@ -448,9 +450,11 @@ norm_sobj <- function(sobj_in, rna_assay = "RNA", adt_assay = "ADT", cc_scoring 
 #' @param ... Additional arguments to pass to doubletFinder_v3.
 #' @return Seurat object with doublet classifications add to meta.data
 #' @export
-run_doubletFinder <- function(sobj_in, assay = "RNA", dbl_rate = NULL, mito_max = 15, gene_min = 250,
-                              prep = TRUE, PCs = 1:40, pN = 0.25, reuse.pANN = FALSE, rsln = 1,
-                              clust_column = "seurat_clusters", mito_clmn = "pct_mito", ...) {
+run_doubletFinder <- function(sobj_in, assay = "RNA", dbl_rate = NULL,
+                              mito_max = 15, gene_min = 250, prep = TRUE,
+                              PCs = 1:40, pN = 0.25, reuse.pANN = FALSE,
+                              rsln = 1, clust_column = "seurat_clusters",
+                              mito_clmn = "pct_mito", ...) {
   
   # Remove low quality cells
   res <- sobj_in %>%
@@ -699,7 +703,7 @@ run_m3drop <- function(sobj_in, assay = "RNA", var_p = 0.05) {
   # counts cannot be log-normalized
   counts <- sobj_in %>%
     GetAssayData(
-      slot  = "counts",
+      slot = "counts",
       assay = assay
     ) %>%
     M3DropConvertData(

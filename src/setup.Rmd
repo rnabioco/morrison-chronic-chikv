@@ -1,5 +1,13 @@
 
 ```{r "packages", include = FALSE}
+# Bioconductor
+library(clusterProfiler)
+library(enrichplot)
+library(msigdbr)
+library(DOSE)
+library(biomaRt)
+library(org.Mm.eg.db)
+
 # Tidyverse
 library(tidyverse)
 library(broom)
@@ -25,14 +33,6 @@ library(presto)
 library(gprofiler2)
 library(harmony)
 library(qs)
-
-# Bioconductor
-library(clusterProfiler)
-library(enrichplot)
-library(msigdbr)
-library(DOSE)
-library(biomaRt)
-library(org.Mm.eg.db)
 
 source(here(params$template_dir, "funs.R"))
 ```
@@ -175,7 +175,7 @@ feat_lvls <- unlist(feat_key, use.names = FALSE)
 # Create Seurat object
 mats <- params$samples %>%
   set_names() %>%
-  map_chr(~ here(undirs$enr_dir, .x, "outs/filtered_feature_bc_matrix"))
+  map_chr(~ here(dirs$unenr_dir, .x, "outs/filtered_feature_bc_matrix"))
 
 sobjs <- mats %>%
   imap(~ create_virus_obj(
@@ -262,15 +262,12 @@ so <- sobjs %>%
       )
   })
 
-so <- merge(so[[1]], so[-1])
-
-# Find variable features with M3Drop
-# counts cannot be log-normalized
-so <- so %>%
-  run_m3drop(assay = "RNA", var_p = 0.001)
+so <- merge(so[[1]], so[-1], add.cell.ids = names(so))
 
 # Cluster cells
+# find variable features with M3Drop
 so <- so %>%
+  run_m3drop(assay = "RNA", var_p = 0.001) %>%
   ScaleData(assay = "RNA") %>%
   cluster_RNA(
     assay      = "RNA",
@@ -280,14 +277,24 @@ so <- so %>%
 
 # Save unfiltered objects and meta.data
 # save and delete raw objects asap to free up memory
-so_raw <- merge(sobjs[[1]], sobjs[-1])
+# so_raw <- merge(sobjs[[1]], sobjs[-1], add.cell.ids = names(sobjs))
+# so_raw_df <- so_raw@meta.data %>%
+#   as_tibble(rownames = "cell_id")
+# save_objs(so_raw, ob_dir = dirs$so_dir)
+sobjs %>%
+  qsave(here(dirs$so_dir, "sobjs.qs"))
 
-so_raw_df <- so_raw@meta.data %>%
-  as_tibble(rownames = "cell_id")
+so_raw_df <- sobjs %>%
+  map_dfr(~ {
+    .x@meta.data %>%
+      as_tibble(rownames = "cell_id") %>%
+      mutate(cell_id = str_c(orig.ident, "_", cell_id))
+  })
 
-save_objs(so_raw, ob_dir = dirs$so_dir)
+so_raw_df %>%
+  write_tsv(here(dirs$so_dir, "so_raw.tsv.gz"))
 
-rm(sobjs, so_raw)
+rm(sobjs)
 ```
 
 ```{r "add enriched CHIKV counts", eval = create_so}
@@ -309,7 +316,7 @@ so_enr <- enr_mat %>%
       )
   })
 
-so_enr <- merge(so_enr[[1]], so_enr[-1])
+so_enr <- merge(so_enr[[1]], so_enr[-1], add.cell.ids = names(so_enr))
 
 # Add new CHIKV counts to meta.data from unfiltered Seurat objects
 chikv_feats <- c(
@@ -402,7 +409,7 @@ so <- so %>%
   mutate_meta(
     mutate,
     cell_type = str_remove(!!sym(type_clmn), " \\(.+$"),
-    cell_type = recode(cell_type, "Stromal cells" = str_c(cell_type, " (DN)")),
+    cell_type = recode(cell_type, "Stromal cells" = "Stromal cells (DN)"),
     
     cell_type_clst = if_else(
       cell_type == "unassigned",
@@ -471,7 +478,7 @@ so <- so %>%
     type_col = "cell_type"
   )
 
-# Adjust T cell label
+# Adjust T cell labels
 so <- so %>%
   mutate_meta(
     mutate,
@@ -649,23 +656,24 @@ so_mac %>%
   facet_wrap(~ name, scale = "free", nrow = 1) +
   scale_x_discrete(label = (function(x) str_extract(x, "^[0-9]+")))
 
-so_mac_int %>%
-  subset(integrated_snn_res.1 != "6") %>%
+so_mac %>%
+  # subset(integrated_snn_res.1 != "6") %>%
   plot_scatter(
     "mac_type",
-    group_col = "orig.ident",
+    "hUMAP_1", "hUMAP_2",
+    group_col = "treatment",
     size = 0.5
   )
 
-so_mac_int %>%
+so_mac %>%
   plot_scatter(
     final_clsts$mac,
     group_col = "orig.ident",
     size = 0.5,
-    top = "14"
+    top = "9"
   )
 
-so_mac_int %>%
+so_mac %>%
   plot_scatter(
     "Cd79a",
     group_col = "orig.ident",
@@ -673,7 +681,7 @@ so_mac_int %>%
     plot_colors = c("lightblue", "white", "red")
   )
 
-so_mac_int %>%
+so_mac %>%
   plot_violin(
     "Nkg7",
     cluster_col = final_clsts$mac,
@@ -750,7 +758,7 @@ so_t <- so_t %>%
   mutate_meta(mutate, t_type = as.character(NA)) %>%
   classify_markers(
     feats      = c("Cd8a", "Cd44", "Sell"),
-    filt       = Cd8a > 0.5 & Cd44 > 1 & Sell < 0.75,
+    filt       = Cd8a > 0.15 & Cd44 > 1 & Sell < 0.75,
     type_label = "CD8 Teff",
     clst_col   = final_clsts$t,
     type_col   = "t_type"
@@ -817,7 +825,22 @@ so_t <- so_t %>%
 
 ```{r "T CELL SUBSET PLOTS", eval = FALSE}
 # gns <- c("Sell", "Cd44", "Il7r", "Trdc", "Foxp3", "Ccr7", "Klrg1", "Cd69")
+
+old <- qread("~/Dropbox/Ryan/Projects/morrison-chronic-chikv/results/sobjs/2023-12-27/so_t.qs")
+
 gns <- c("Sell", "Cd44", "Cd8a", "Cd4", "Trdc", "Foxp3", "Il7r", "Cd3e")
+
+gns %>%
+  map(~ {
+    old %>%
+      plot_violin(
+        .x,
+        cluster_col = final_clsts$t,
+        method = "boxplot"
+      )
+  }) %>%
+  plot_grid(plotlist = .)
+
 
 so_t %>%
   FetchData(c(final_clsts$t, "t_type", gns)) %>%
@@ -875,35 +898,35 @@ x %>%
     size = 2
   )
 
-# Assign T cell subsets
-cluster_idents <- c(
-  "3" = "CD4 naive",    # Cd44-/CD62L+
-  "0" = "CD8 naive",    # Cd44-/CD62L+
-  "2" = "CD4 Teff",     # Cd44+/CD62L-/Il7r-
-  "4" = "CD8 Teff",     # Cd44+/CD62L-/Il7r-
-  "6" = "CD8 Tcm",      # Cd44+/CD62L+
-  "8" = "CD8 Tcm",      # Cd44+/CD62L+
-  "5" = "Tgd",          # Trdc+
-  "1" = "CD8 naive",    # Cd44-/CD62L+
-  "7" = "Treg"          # Foxp3+
-)
-
-so_t_int <- so_t_int %>%
-  mutate_meta(
-    mutate,
-    t_type = cluster_idents[as.character(!!sym(final_clsts$t))]
-  )
-
-# FOR NOW REMOVE CLUSTER 8, UNCLEAR IF THESE ARE T CELLS
-so_t_int <- so_t_int %>%
-  subset(integrated_snn_res.1 != "8")
-
-so_t_int <- so_t_int %>%
-  mutate_meta(
-    mutate,
-    cd4_8 = str_extract(t_type, "^CD[48]"),
-    cd4_8 = ifelse(t_type == "Treg", "CD4", cd4_8)
-  )
+# # Assign T cell subsets
+# cluster_idents <- c(
+#   "3" = "CD4 naive",    # Cd44-/CD62L+
+#   "0" = "CD8 naive",    # Cd44-/CD62L+
+#   "2" = "CD4 Teff",     # Cd44+/CD62L-/Il7r-
+#   "4" = "CD8 Teff",     # Cd44+/CD62L-/Il7r-
+#   "6" = "CD8 Tcm",      # Cd44+/CD62L+
+#   "8" = "CD8 Tcm",      # Cd44+/CD62L+
+#   "5" = "Tgd",          # Trdc+
+#   "1" = "CD8 naive",    # Cd44-/CD62L+
+#   "7" = "Treg"          # Foxp3+
+# )
+# 
+# so_t_int <- so_t_int %>%
+#   mutate_meta(
+#     mutate,
+#     t_type = cluster_idents[as.character(!!sym(final_clsts$t))]
+#   )
+# 
+# # FOR NOW REMOVE CLUSTER 8, UNCLEAR IF THESE ARE T CELLS
+# so_t_int <- so_t_int %>%
+#   subset(integrated_snn_res.1 != "8")
+# 
+# so_t_int <- so_t_int %>%
+#   mutate_meta(
+#     mutate,
+#     cd4_8 = str_extract(t_type, "^CD[48]"),
+#     cd4_8 = ifelse(t_type == "Treg", "CD4", cd4_8)
+#   )
 
 
 
