@@ -61,7 +61,6 @@ knitr::knit(here::here("src/setup.Rmd"), output = "")
 ```
 
 ```{r "functions"}
-
 plot_examples <- function(so_in, gns, split = NULL, thm = NULL,
                           clrs = c("#56B4E9", "white", "red")) {
   gns %>%
@@ -112,17 +111,52 @@ fetch_genes <- function(terms, mart) {
   
   res
 }
+```
 
+```{r "mouse homologs"}
+# Get human/mouse homologs
+# get server error when using default host
+hfile  <- here(dirs$ref_dir, "hlogs.tsv.gz")
+host   <- "https://dec2021.archive.ensembl.org"
+biomrt <- "ensembl"
+
+if (!file.exists(hfile)) {
+  h_mart <- useEnsembl(biomrt, dataset = "hsapiens_gene_ensembl", host = host)
+  m_mart <- useEnsembl(biomrt, dataset = "mmusculus_gene_ensembl", host = host)
+  
+  hlogs <- getLDS(
+    filters     = "external_gene_name",
+    values      = rownames(so),
+    attributes  = c("external_gene_name", "entrezgene_id"),
+    attributesL = c("external_gene_name", "entrezgene_id"),
+    mart        = h_mart,
+    martL       = m_mart
+  )
+  
+  # Format columns
+  hlogs <- hlogs %>%
+    rename_with(.cols = ends_with(".1"),       ~ str_replace(.x, ".1$", "_mm")) %>%
+    rename_with(.cols = matches("^Gene.name"), ~ str_replace(.x, "^[^_]+", "gene")) %>%
+    rename_with(.cols = matches("^NCBI"),      ~ str_replace(.x, "^[^_]+", "entrez")) %>%
+    as_tibble() %>%
+    mutate(across(everything(), ~ str_replace(.x, "^$", as.character(NA))))
+  
+  hlogs %>%
+    write_tsv(hfile)
+}
+
+hlogs <- hfile %>%
+  read_tsv() %>%
+  distinct(gene, gene_mm)
 ```
 
 ```{r "mac DEGs"}
-
 # CHIKV+ clusters DEGS
 # For GSEA save list that includes fold changes for all genes regardless of
 # significance
-Idents(so_int) <- so_int$chikv_clst_grp
+Idents(so_int) <- so$chikv_clst_grp
 
-clst_deg_file <- here("results", params$table_dir, "mac_chikv-high_degs.tsv")
+clst_deg_file <- here(dirs$table_dir, "mac_chikv-high_degs.tsv")
 
 if (!file.exists(clst_deg_file)) {
   clst_degs <- so_int %>%
@@ -183,27 +217,9 @@ if (!file.exists(chikv_deg_file)) {
 } else {
   chikv_degs <- read_tsv(chikv_deg_file)
 }
-
 ```
 
 ```{r "mac GSEA"}
-
-# Get human homologs
-h_mart <- useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
-m_mart <- useEnsembl("ensembl", dataset = "mmusculus_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
-
-hlogs <- getLDS(
-  filters     = "external_gene_name",
-  values      = unique(clst_degs$gene, chikv_degs$gene),
-  attributes  = c("external_gene_name", "entrezgene_id"),
-  attributesL = c("external_gene_name", "entrezgene_id"),
-  mart        = h_mart,
-  martL       = m_mart
-) %>%
-  rename_with(.cols = ends_with(".1"),       ~ str_replace(.x, ".1$", "_mm")) %>%
-  rename_with(.cols = matches("^Gene.name"), ~ str_replace(.x, "^[^_]+", "gene")) %>%
-  rename_with(.cols = matches("^NCBI"),      ~ str_replace(.x, "^[^_]+", "entrez"))
-
 # Macrophage CHIKV-high DEGs
 # GSEA analysis using DOSE database
 # need to fetch entrez gene IDs for human homologs
@@ -265,7 +281,6 @@ if (!file.exists(gsea_file)) {
 } else {
   chikv_gsea <- qread(gsea_file)
 }
-
 ```
 
 ```{r "t cell type markers"}
@@ -831,6 +846,161 @@ rev(feats) %>%
     cat("\n\n---\n\n<br>\n\n<br>\n\n")
   })
 
+```
+
+<br>
+
+```{r "simmons modules", eval = FALSE}
+# Load gene lists from Simmons et al. 2022
+simmons_genes <- list(
+  SLAMF7_stim = here(dirs$ref_dir, "2022_Simmons/sciimmunol.abf2846_data_file_s3.xlsx"),
+  SLAMF7_high = here(dirs$ref_dir, "2022_Simmons/sciimmunol.abf2846_data_file_s2.xlsx"),
+  arthritis   = here(dirs$ref_dir, "2022_Simmons/sciimmunol.abf2846_data_file_s1.xlsx")
+)
+
+simmons_genes <- simmons_genes %>%
+  map(~ {
+    .x %>%
+      xlsx::read.xlsx(
+        sheetIndex = 1,
+        startRow   = 2,
+        header     = TRUE,
+        colClasses = NA
+      ) %>%
+      as_tibble()
+  })
+
+# Get mouse homologs
+# for genes with multiple mouse homologs, use all genes
+simmons_genes <- simmons_genes %>%
+  map(~ {
+    .x %>%
+      left_join(hlogs, by = c(Gene = "gene")) %>%
+      filter(!is.na(gene_mm))
+  })
+```
+
+```{r "simmons module scores", fig.width = 10, fig.height = 28, eval = FALSE}
+# Add module scores to object
+mods <- simmons_genes %>%
+  map(~ {
+    .x %>%
+      pull(gene_mm) %>%
+      unique()
+  })
+
+nms <- names(mods)
+nms <- set_names(str_c(nms, seq_along(mods)), nms)
+
+# Original macrophage object
+so_mac <- qread(here(params$so_dir, "original_objects/so_mac_int.qs"))
+
+so_mac@active.assay <- "RNA"
+
+so_mac <- so_mac %>%
+  mutate_meta(dplyr::select, -any_of(names(nms))) %>%
+  AddModuleScore(features = mods, name = names(mods)) %>%
+  mutate_meta(~ {
+    .x %>%
+      rename(!!!nms) %>%
+      mutate(treatment = fct_relevel(treatment, treats))
+  })
+
+# Plot module scores
+mod_plts <- names(mods) %>%
+  map(~ {
+    txt_theme <- theme(
+      plot.title = element_text(size = 24),
+      strip.text = element_text(size = 18),
+    )
+    
+    # UMAP projections
+    u <- so_mac %>%
+      plot_scatter(
+        .x,
+        # x = "hUMAP_1", y = "hUMAP_2",
+        x = "UMAP_1", y = "UMAP_2",
+        group_col    = "treatment",
+        outline      = TRUE,
+        plot_colors  = c("#56B4E9", "white", "#D7301F"),
+        label_params = list(size = 16)
+      ) +
+      guides(fill = guide_colorbar(
+        ticks = FALSE,
+        barheight = unit(150, "pt"),
+        barwidth = unit(12, "pt"),
+        frame.colour = ln_col
+      )) +
+      labs(title = str_c(.x, " module")) +
+      umap_theme +
+      txt_theme +
+      theme(
+        aspect.ratio     = NULL,
+        panel.background = element_rect(color = ln_col),
+        plot.margin      = margin(50, 5, 5, 5, unit = "pt"),
+        plot.title       = element_text(hjust = 0.5, size = 24),
+        strip.text       = element_text(size = 18),
+        legend.title     = element_blank()
+      )
+    
+    # Histograms
+    treat_clrs <- c(
+      mock = "#56B4E9", CHIKV = "#D7301F"
+    )
+    
+    h <- so_mac@meta.data %>%
+      mutate(treatment = fct_relevel(treatment, rev(treats))) %>%
+      ggplot(aes(!!sym(.x), fill = treatment)) +
+      geom_histogram(position = "identity", alpha = 0.7, bins = 30) +
+      scale_fill_manual(values = treat_clrs) +
+      labs(y = "number of cells") +
+      base_theme +
+      theme(
+        legend.position      = "bottom",
+        legend.justification = 0.5,
+        legend.title         = element_blank(),
+        legend.text          = element_text(size = 14),
+        axis.title.x         = element_blank(),
+        axis.title.y         = element_text(size = 14)
+      )
+    
+    # Boxplots
+    b <- so_mac@meta.data %>%
+      ggplot(aes(mac_type, !!sym(.x), fill = mac_type, alpha = treatment)) +
+      geom_violin(draw_quantiles = c(0.25, 0.75), scale = "width", position = position_dodge(width = 1.01)) +
+      stat_summary(
+        geom = "point", fun = median,
+        position = position_dodge2(width = 1), show.legend = FALSE
+      ) +
+      # geom_boxplot(outlier.size = 0.1, key_glyph = draw_key_point) +
+      scale_fill_manual(values = mac_typ_cols) +
+      scale_alpha_manual(values = c(0.25, 0.9)) +
+      guides(
+        fill = "none",
+        alpha = guide_legend(override.aes = list(shape = 22, size = 4, fill = "black"))
+      ) +
+      base_theme +
+      theme(
+        legend.position      = "bottom",
+        legend.justification = 0.5,
+        legend.title         = element_blank(),
+        legend.text          = element_text(size = 14),
+        axis.title.x         = element_blank(),
+        axis.title.y         = element_text(size = 14),
+        axis.text.x          = element_text(angle = 45, hjust = 1)
+      )
+    
+    # Create final figure
+    u / (h + b) +
+      plot_layout(heights = c(1, 0.4))
+  })
+
+plot_grid(plotlist = mod_plts, ncol = 1)
+
+ggsave(
+  here("results/2024-01-04_simmons_genes.png"),
+  width = 10, height = 28, dpi = 300
+)
 ```
 
 ## T cells
