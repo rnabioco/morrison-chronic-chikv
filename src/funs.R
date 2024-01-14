@@ -430,6 +430,9 @@ norm_sobj <- function(sobj_in, rna_assay = "RNA", adt_assay = "ADT", cc_scoring 
 #' 
 #' @param sobj_in Seurat object with low quality cells removed
 #' @param assay Name of assay in object.
+#' @param n_cells Number of cells to use when estimating doublet rate.
+#' @param qc_column Column containing TRUE/FALSE values indicating which cells
+#' should be used with doubletFinder.
 #' @param dbl_rate Expected doublet rate for experiment. If set to NULL,
 #' expected doublet rate will be estimated based on number of captured cells.
 #' @param gene_min Minimum number of detected genes to use for filtering low
@@ -450,21 +453,22 @@ norm_sobj <- function(sobj_in, rna_assay = "RNA", adt_assay = "ADT", cc_scoring 
 #' @param ... Additional arguments to pass to doubletFinder_v3.
 #' @return Seurat object with doublet classifications add to meta.data
 #' @export
-run_doubletFinder <- function(sobj_in, assay = "RNA", dbl_rate = NULL,
-                              mito_max = 15, gene_min = 250, prep = TRUE,
-                              PCs = 1:40, pN = 0.25, reuse.pANN = FALSE,
-                              rsln = 1, clust_column = "seurat_clusters",
+run_doubletFinder <- function(sobj_in, assay = "RNA", n_cells = ncol(sobj_in),
+                              qc_column = "qc_pass", dbl_rate = NULL,
+                              prep = TRUE, PCs = 1:40, pN = 0.25,
+                              reuse.pANN = FALSE, rsln = 1,
+                              clust_column = "seurat_clusters",
                               mito_clmn = "pct_mito", ...) {
   
   # Remove low quality cells
   res <- sobj_in %>%
-    subset(!!sym(mito_clmn) <= mito_max & nFeature_RNA >= gene_min)
+    subset(!!sym(qc_column))
   
   # Preprocess object
   if (prep || (is.logical(reuse.pANN) && !reuse.pANN)) {
     clust_column <- "seurat_clusters"
     
-    res <- sobj_in %>%
+    res <- res %>%
       norm_sobj(
         rna_assay  = assay,
         rna_method = "LogNormalize",
@@ -495,7 +499,7 @@ run_doubletFinder <- function(sobj_in, assay = "RNA", dbl_rate = NULL,
     dbl_rate <- 0.0000046
     cap_rate <- 0.57
     
-    dbl_rate <- (ncol(sobj_in) / cap_rate) * dbl_rate
+    dbl_rate <- (n_cells / cap_rate) * dbl_rate
   }
   
   # Homotypic doublet proportion estimate

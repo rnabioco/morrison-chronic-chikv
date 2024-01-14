@@ -187,6 +187,26 @@ sobjs <- mats %>%
     virus_str   = "^CHIKV",
     virus_assay = "CHIKV"
   ))
+
+# Identify low quality cells
+sobjs <- sobjs %>%
+  map(~ {
+    qc <- .x %>%
+      scuttle::perCellQCFilters(
+        sum.field      = "nCount_RNA",
+        detected.field = "nFeature_RNA",
+        sub.fields     = "pct_mito"
+      ) %>%
+      as_tibble() %>%
+      mutate(
+        across(everything(), as.logical),
+        qc_pass = !discard
+      ) %>%
+      as.data.frame(.x$cell_id)
+
+    .x %>%
+      AddMetaData(qc)
+  })
 ```
 
 ```{r "doublets", eval = create_so && params$rm_doublets}
@@ -196,33 +216,33 @@ sobjs <- sobjs %>%
   map(~ {
     .x %>%
       run_doubletFinder(
-        mito_max = params$mito_max,
-        gene_min = params$gene_min,
-        prep     = TRUE,
-        rsln     = 5,
-        PCs      = 1:50
+        qc_col = "qc_pass",
+        prep   = TRUE,
+        rsln   = 5,
+        PCs    = 1:50
       ) %>%
       mutate_meta(
         mutate,
-        qc_class = ifelse(
-          !is.na(dbl_class) & dbl_class == "Doublet",
-          str_to_lower(dbl_class),
-          qc_class
-        )
+        qc_pass = qc_pass & dbl_class != "Doublet"
+        # qc_class = ifelse(
+        #   !is.na(dbl_class) & dbl_class == "Doublet",
+        #   str_to_lower(dbl_class),
+        #   qc_class
+        # )
       )
   })
 
 
 
 # # CHECK DOUBLET FILTERING
-# old_raw %>%
+# so_raw_df %>%
 #   split(.$orig.ident) %>%
 #   map_dbl(~ {
 #     dbl_rate <- 0.0000046
 #     cap_rate <- 0.57
-#     
+# 
 #     dbl_rate <- (nrow(.x) / cap_rate) * dbl_rate
-#     
+# 
 #     .x %>%
 #       filter(
 #         pct_mito < params$mito_max,
@@ -231,8 +251,7 @@ sobjs <- sobjs %>%
 #       ) %>%
 #       nrow() %>%
 #       (function(x) x - (x * dbl_rate))
-#   }) %>%
-#   sum()
+#   })
 ```
 
 ```{r "cluster cells", eval = create_so}
@@ -254,7 +273,7 @@ sobjs <- sobjs %>%
 so <- sobjs %>%
   map(~ {
     .x %>%
-      subset(subset = qc_class == "pass") %>%
+      subset(qc_pass) %>%
       norm_sobj(
         cc_scoring = TRUE,
         rna_method = "LogNormalize",
