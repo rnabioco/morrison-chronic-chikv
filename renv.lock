@@ -3,6 +3,26 @@
     "Version": "4.3.1",
     "Repositories": [
       {
+        "Name": "BioCsoft",
+        "URL": "https://bioconductor.org/packages/3.18/bioc"
+      },
+      {
+        "Name": "BioCann",
+        "URL": "https://bioconductor.org/packages/3.18/data/annotation"
+      },
+      {
+        "Name": "BioCexp",
+        "URL": "https://bioconductor.org/packages/3.18/data/experiment"
+      },
+      {
+        "Name": "BioCworkflows",
+        "URL": "https://bioconductor.org/packages/3.18/workflows"
+      },
+      {
+        "Name": "BioCbooks",
+        "URL": "https://bioconductor.org/packages/3.18/books"
+      },
+      {
         "Name": "P3M",
         "URL": "https://packagemanager.posit.co/cran/latest"
       },
@@ -222,6 +242,21 @@
       ],
       "Hash": "0e5c84e543a3d04ce64c6f60ed46d7eb"
     },
+    "DelayedMatrixStats": {
+      "Package": "DelayedMatrixStats",
+      "Version": "1.24.0",
+      "Source": "Bioconductor",
+      "Requirements": [
+        "DelayedArray",
+        "IRanges",
+        "Matrix",
+        "MatrixGenerics",
+        "S4Vectors",
+        "methods",
+        "sparseMatrixStats"
+      ],
+      "Hash": "71c2d178d33f9d91999f67dc2d53b747"
+    },
     "DoubletFinder": {
       "Package": "DoubletFinder",
       "Version": "2.0.3",
@@ -230,8 +265,8 @@
       "RemoteHost": "api.github.com",
       "RemoteRepo": "DoubletFinder",
       "RemoteUsername": "chris-mcginnis-ucsf",
-      "RemotePkgRef": "chris-mcginnis-ucsf/DoubletFinder",
-      "RemoteRef": "HEAD",
+      "RemotePkgRef": "chris-mcginnis-ucsf/DoubletFinder@1b1d4e2",
+      "RemoteRef": "1b1d4e2",
       "RemoteSha": "1b1d4e2d7f893a3552d9f8f791ab868ee4c782e6",
       "Requirements": [
         "KernSmooth",
@@ -239,7 +274,7 @@
         "fields",
         "parallel"
       ],
-      "Hash": "5355d08473a610a38e30eb53f83df8b4"
+      "Hash": "72da18e8740cf12ba1aaeb4d9c4aafe2"
     },
     "FNN": {
       "Package": "FNN",
@@ -595,19 +630,6 @@
       ],
       "Hash": "4bf2af2d714d0ee2b4fec0e6b8c150e6"
     },
-    "RSpectra": {
-      "Package": "RSpectra",
-      "Version": "0.16-1",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Requirements": [
-        "Matrix",
-        "R",
-        "Rcpp",
-        "RcppEigen"
-      ],
-      "Hash": "6b5ab997fd5ff6d46a5f1d9f8b76961c"
-    },
     "Rcpp": {
       "Package": "Rcpp",
       "Version": "1.0.11",
@@ -657,17 +679,6 @@
         "utils"
       ],
       "Hash": "acb0a5bf38490f26ab8661b467f4f53a"
-    },
-    "RcppHNSW": {
-      "Package": "RcppHNSW",
-      "Version": "0.5.0",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Requirements": [
-        "Rcpp",
-        "methods"
-      ],
-      "Hash": "6af2d9ed44e0281f6ae77eb6bed7a3c9"
     },
     "RcppParallel": {
       "Package": "RcppParallel",
@@ -749,9 +760,15 @@
     },
     "Seurat": {
       "Package": "Seurat",
-      "Version": "5.0.1",
-      "Source": "Repository",
-      "Repository": "RSPM",
+      "Version": "4.4.0",
+      "Source": "GitHub",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteRepo": "seurat",
+      "RemoteUsername": "satijalab",
+      "RemotePkgRef": "satijalab/seurat@v4.4.0",
+      "RemoteRef": "v4.4.0",
+      "RemoteSha": "d9f09de15ddf05fe89a8b16eaa100e3720ee122b",
       "Requirements": [
         "KernSmooth",
         "MASS",
@@ -760,21 +777,17 @@
         "RANN",
         "RColorBrewer",
         "ROCR",
-        "RSpectra",
         "Rcpp",
         "RcppAnnoy",
         "RcppEigen",
-        "RcppHNSW",
         "RcppProgress",
         "Rtsne",
         "SeuratObject",
         "cluster",
         "cowplot",
-        "fastDummies",
         "fitdistrplus",
         "future",
         "future.apply",
-        "generics",
         "ggplot2",
         "ggrepel",
         "ggridges",
@@ -787,7 +800,6 @@
         "irlba",
         "jsonlite",
         "leiden",
-        "lifecycle",
         "lmtest",
         "matrixStats",
         "methods",
@@ -812,13 +824,19 @@
         "utils",
         "uwot"
       ],
-      "Hash": "7529b4701d0ad499db7bbf4e6934aed0"
+      "Hash": "f296887b20bad58b2795f093124f4848"
     },
     "SeuratObject": {
       "Package": "SeuratObject",
-      "Version": "5.0.1",
-      "Source": "Repository",
-      "Repository": "RSPM",
+      "Version": "4.1.4",
+      "Source": "GitHub",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteRepo": "seurat-object",
+      "RemoteUsername": "satijalab",
+      "RemotePkgRef": "satijalab/seurat-object@v4.1.4",
+      "RemoteRef": "v4.1.4",
+      "RemoteSha": "9788970c5789134cdf30d60b2a72d814f9304a84",
       "Requirements": [
         "Matrix",
         "R",
@@ -826,20 +844,17 @@
         "RcppEigen",
         "future",
         "future.apply",
-        "generics",
         "grDevices",
         "grid",
-        "lifecycle",
         "methods",
         "progressr",
         "rlang",
         "sp",
-        "spam",
         "stats",
         "tools",
         "utils"
       ],
-      "Hash": "424c2b9e50b053c86fc38f17e09917da"
+      "Hash": "15f24837ab5d8b229c001add7579939c"
     },
     "SingleCellExperiment": {
       "Package": "SingleCellExperiment",
@@ -1070,6 +1085,20 @@
         "methods"
       ],
       "Hash": "b55d57db210e5af3f097ae228aadaf50"
+    },
+    "beachmat": {
+      "Package": "beachmat",
+      "Version": "2.18.0",
+      "Source": "Bioconductor",
+      "Requirements": [
+        "BiocGenerics",
+        "DelayedArray",
+        "Matrix",
+        "Rcpp",
+        "SparseArray",
+        "methods"
+      ],
+      "Hash": "0907299d009cbc2d17adfbfa1ffb5ac5"
     },
     "biomaRt": {
       "Package": "biomaRt",
@@ -1825,19 +1854,6 @@
       "Source": "Repository",
       "Repository": "RSPM",
       "Hash": "8106d78941f34855c440ddb946b8f7a5"
-    },
-    "fastDummies": {
-      "Package": "fastDummies",
-      "Version": "1.7.3",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Requirements": [
-        "R",
-        "data.table",
-        "stringr",
-        "tibble"
-      ],
-      "Hash": "e0f9c0c051e0e8d89996d7f0c400539f"
     },
     "fastmap": {
       "Package": "fastmap",
@@ -3815,6 +3831,28 @@
       ],
       "Hash": "0242402f321be0246fb67cf8c63b3572"
     },
+    "scuttle": {
+      "Package": "scuttle",
+      "Version": "1.12.0",
+      "Source": "Bioconductor",
+      "Requirements": [
+        "BiocGenerics",
+        "BiocParallel",
+        "DelayedArray",
+        "DelayedMatrixStats",
+        "GenomicRanges",
+        "Matrix",
+        "Rcpp",
+        "S4Vectors",
+        "SingleCellExperiment",
+        "SummarizedExperiment",
+        "beachmat",
+        "methods",
+        "stats",
+        "utils"
+      ],
+      "Hash": "1412c4b6dfd8de528e1101e493e66a02"
+    },
     "segmented": {
       "Package": "segmented",
       "Version": "2.0-1",
@@ -3961,6 +3999,19 @@
         "methods"
       ],
       "Hash": "ffe1f9e95a4375530747b268f82b5086"
+    },
+    "sparseMatrixStats": {
+      "Package": "sparseMatrixStats",
+      "Version": "1.14.0",
+      "Source": "Bioconductor",
+      "Requirements": [
+        "Matrix",
+        "MatrixGenerics",
+        "Rcpp",
+        "matrixStats",
+        "methods"
+      ],
+      "Hash": "49383d0f6c6152ff7cb594f254c23cc8"
     },
     "spatstat.data": {
       "Package": "spatstat.data",
