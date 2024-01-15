@@ -398,7 +398,7 @@
     "HDO.db": {
       "Package": "HDO.db",
       "Version": "0.99.1",
-      "Source": "Bioconductor",
+      "Source": "Repository",
       "Requirements": [
         "AnnotationDbi",
         "R",
@@ -513,7 +513,7 @@
     },
     "Matrix": {
       "Package": "Matrix",
-      "Version": "1.6-4",
+      "Version": "1.6-1.1",
       "Source": "Repository",
       "Repository": "RSPM",
       "Requirements": [
@@ -526,7 +526,7 @@
         "stats",
         "utils"
       ],
-      "Hash": "d9c655b30a2edc6bb2244c1d1e8d549d"
+      "Hash": "1a00d4828f33a9d690806e98bd17150c"
     },
     "MatrixGenerics": {
       "Package": "MatrixGenerics",
@@ -3444,17 +3444,6 @@
       ],
       "Hash": "76fc42834c44b69e4021f6ade524d299"
     },
-    "rJava": {
-      "Package": "rJava",
-      "Version": "1.0-10",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Requirements": [
-        "R",
-        "methods"
-      ],
-      "Hash": "151b95627c232d3822bb6d876286a99c"
-    },
     "ragg": {
       "Package": "ragg",
       "Version": "1.2.7",
@@ -4556,29 +4545,6 @@
         "tools"
       ],
       "Hash": "460a5e0fe46a80ef87424ad216028014"
-    },
-    "xlsx": {
-      "Package": "xlsx",
-      "Version": "0.6.5",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "grDevices",
-        "rJava",
-        "utils",
-        "xlsxjars"
-      ],
-      "Hash": "d24d579f59a3b6da1e1cf4660425443e"
-    },
-    "xlsxjars": {
-      "Package": "xlsxjars",
-      "Version": "0.6.1",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Requirements": [
-        "rJava"
-      ],
-      "Hash": "4c4b3bc29a916f33f1298dd951133351"
     },
     "xml2": {
       "Package": "xml2",

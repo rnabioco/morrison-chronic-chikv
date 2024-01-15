@@ -192,7 +192,7 @@ sobjs <- mats %>%
 # Identify low quality cells
 sobjs <- sobjs %>%
   map(~ {
-    qc <- .x %>%
+    qc <- .x@meta.data %>%
       scuttle::perCellQCFilters(
         sum.field      = "nCount_RNA",
         detected.field = "nFeature_RNA",
@@ -201,9 +201,10 @@ sobjs <- sobjs %>%
       as_tibble() %>%
       mutate(
         across(everything(), as.logical),
-        qc_pass = !discard
+        qc_pass  = !discard,
+        .cell_id = Cells(.x)
       ) %>%
-      as.data.frame(.x$cell_id)
+      column_to_rownames(".cell_id")
 
     .x %>%
       AddMetaData(qc)
