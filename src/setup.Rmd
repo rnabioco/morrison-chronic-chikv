@@ -190,6 +190,8 @@ sobjs <- mats %>%
   ))
 
 # Identify low quality cells
+# use adaptive cutoffs from scuttle package
+# also set absolute max for pct_mito
 sobjs <- sobjs %>%
   map(~ {
     qc <- .x@meta.data %>%
@@ -201,7 +203,7 @@ sobjs <- sobjs %>%
       as_tibble() %>%
       mutate(
         across(everything(), as.logical),
-        qc_pass  = !discard,
+        qc_pass  = !discard & pct_mito < params$mito_max,
         .cell_id = Cells(.x)
       ) %>%
       column_to_rownames(".cell_id")
@@ -289,7 +291,7 @@ so <- merge(so[[1]], so[-1], add.cell.ids = names(so))
 # find variable features with M3Drop
 so <- so %>%
   run_m3drop(assay = "RNA", var_p = 0.001) %>%
-  ScaleData(assay = "RNA") %>%
+  ScaleData(assay = "RNA", vars.to.regress = "pct_mito") %>%
   cluster_RNA(
     assay      = "RNA",
     resolution = rslns,
@@ -841,6 +843,12 @@ so_t <- so_t %>%
     type_label = "Treg",
     clst_col   = final_clsts$t,
     type_col   = "t_type"
+  )
+
+so_t <- so_t %>%
+  mutate_meta(
+    mutate,
+    t_type = replace_na(t_type, "unassigned")
   )
 ```
 

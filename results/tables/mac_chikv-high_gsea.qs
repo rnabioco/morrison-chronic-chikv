@@ -1,1 +1,0 @@
-/home/rmsheridan/Projects/morrison-scRNA-seq/results/2021-11-05/tables/mac_chikv-high_gsea.qs
