@@ -7,6 +7,7 @@ library(msigdbr)
 library(DOSE)
 library(biomaRt)
 library(org.Mm.eg.db)
+library(org.Hs.eg.db)
 
 # Tidyverse
 library(tidyverse)
@@ -22,6 +23,7 @@ library(djvdj)
 library(scales)
 library(ggrepel)
 library(patchwork)
+library(ggupset)
 
 # scRNA-seq analysis
 library(Seurat)
@@ -1057,6 +1059,78 @@ so_raw_df <- read_tsv(here(dirs$so_dir, "so_raw.tsv.gz"))
 
 # Load enriched meta.data
 so_enr_df <- read_tsv(here(dirs$so_dir, "so_enr.tsv.gz"))
+```
+
+```{r "mouse homologs"}
+# Get human/mouse homologs
+# get server error when using default host
+hfile  <- here(dirs$ref_dir, "hlogs.tsv.gz")
+host   <- "https://dec2021.archive.ensembl.org"
+biomrt <- "ensembl"
+
+if (!file.exists(hfile)) {
+  h_mart <- useEnsembl(biomrt, dataset = "hsapiens_gene_ensembl", host = host)
+  m_mart <- useEnsembl(biomrt, dataset = "mmusculus_gene_ensembl", host = host)
+  
+  hlogs <- getLDS(
+    filters     = "external_gene_name",
+    values      = rownames(so),
+    attributes  = c("external_gene_name", "entrezgene_id"),
+    attributesL = c("external_gene_name", "entrezgene_id"),
+    mart        = h_mart,
+    martL       = m_mart
+  )
+  
+  # Format columns
+  # mouse columns end in '.1'
+  hlogs <- hlogs %>%
+    rename_with(.cols = matches("[^1]$"),   ~ str_c(.x, "_hs")) %>%
+    rename_with(.cols = ends_with(".1"),       ~ str_replace(.x, ".1$", "_mm")) %>%
+    rename_with(.cols = matches("^Gene.name"), ~ str_replace(.x, "^[^_]+", "gene")) %>%
+    rename_with(.cols = matches("^NCBI"),      ~ str_replace(.x, "^[^_]+", "entrez")) %>%
+    as_tibble() %>%
+    mutate(across(everything(), ~ str_replace(.x, "^$", as.character(NA))))
+  
+  hlogs %>%
+    write_tsv(hfile)
+}
+
+hlogs <- hfile %>%
+  read_tsv() %>%
+  distinct(gene_mm, gene_hs, entrez_hs)
+```
+
+```{r "simmons gene lists"}
+# Load gene lists from Simmons et al. 2022
+simmons_genes <- list(
+  SLAMF7_stim = here(dirs$ref_dir, "2022_Simmons/sciimmunol.abf2846_data_file_s3.xlsx"),
+  SLAMF7_high = here(dirs$ref_dir, "2022_Simmons/sciimmunol.abf2846_data_file_s2.xlsx"),
+  arthritis   = here(dirs$ref_dir, "2022_Simmons/sciimmunol.abf2846_data_file_s1.xlsx")
+)
+
+simmons_genes <- simmons_genes %>%
+  map(~ {
+    .x %>%
+      xlsx::read.xlsx(
+        sheetIndex = 1,
+        startRow   = 2,
+        header     = TRUE,
+        colClasses = NA
+      ) %>%
+      as_tibble()
+  })
+
+# Get mouse homologs
+# for genes with multiple mouse homologs, use all genes
+simmons_genes <- simmons_genes %>%
+  map(~ {
+    .x %>%
+      inner_join(hlogs, by = c(Gene = "gene_hs")) %>%
+      filter(if_all(
+        c(Gene, gene_mm, entrez_hs),
+        ~ !duplicated(.x) & !duplicated(.x, fromLast = TRUE)
+      ))
+  })
 ```
 
 ```{r "sample labels"}

@@ -2293,6 +2293,22 @@
       ],
       "Hash": "f009cfa13d3884c01cc6300443e397eb"
     },
+    "ggupset": {
+      "Package": "ggupset",
+      "Version": "0.3.0",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Requirements": [
+        "R",
+        "ggplot2",
+        "grid",
+        "gtable",
+        "rlang",
+        "scales",
+        "tibble"
+      ],
+      "Hash": "8e9eb92bf465601c07d17c5e8b75dce1"
+    },
     "globals": {
       "Package": "globals",
       "Version": "0.16.2",
@@ -3122,6 +3138,17 @@
         "askpass"
       ],
       "Hash": "2a0dc8c6adfb6f032e4d4af82d258ab5"
+    },
+    "org.Hs.eg.db": {
+      "Package": "org.Hs.eg.db",
+      "Version": "3.18.0",
+      "Source": "Bioconductor",
+      "Requirements": [
+        "AnnotationDbi",
+        "R",
+        "methods"
+      ],
+      "Hash": "120d734b7c6eaed99d8f5f61e6c125ed"
     },
     "org.Mm.eg.db": {
       "Package": "org.Mm.eg.db",
