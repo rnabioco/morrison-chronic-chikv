@@ -18,7 +18,7 @@ params:
   table_dir:    "results/tables"          # Directory to write tables
   geo_dir:      "results/geo"             # Directory for GEO submission
   overwrite:    false                     # Should tables be overwritten if they already exist?
-  so_dir:       "~/Dropbox/Ryan/Projects/morrison-chronic-chikv/results/sobjs/2024-01-14" # Directory for Seurat objects
+  so_dir:       "~/Dropbox/Ryan/Projects/morrison-chronic-chikv/results/sobjs" # Directory for Seurat objects
   metrics:     "count_metrics.csv"       # Cell Ranger metrics
   gene_min:    250                       # Min number of detected genes per cell
   gene_max:    5500                      # Max number of detected genes per cell
@@ -43,7 +43,7 @@ params:
     - "C2"
     - "C3"
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 <br>
@@ -111,6 +111,37 @@ fetch_genes <- function(terms, mart) {
   
   res
 }
+```
+
+```{r "mac object"}
+# Calculate median fraction of CHIKV+ cells for clusters
+so_mac <- so_mac %>%
+  mutate_meta(~ {
+    .x %>%
+      group_by(!!sym(final_clsts$mac), treatment) %>%
+      mutate(
+        frac_chikv_cells = sum(chikv_grp == chikv_grps[2]) / n()
+      ) %>%
+      ungroup()
+  })
+
+# Set cutoff based on median fraction of CHIKV+ cells
+# get the median for cells, not clusters, so low/high groups are similar size
+frac_lim <- so_mac@meta.data %>%
+  dplyr::filter(treatment == treats[2]) %>%
+  pull(frac_chikv_cells) %>%
+  median()
+  
+so_mac <- so_mac %>%
+  mutate_meta(
+    mutate,
+    chikv_clst_grp = ifelse(
+      frac_chikv_cells >= frac_lim,
+      chikv_grps[2],
+      chikv_grps[1]
+    ),
+    chikv_clst_grp = fct_relevel(chikv_clst_grp, chikv_grps)
+  )
 ```
 
 ```{r "mac DEGs"}
@@ -450,9 +481,157 @@ if (!file.exists(chikv_deg_file)) {
 t_typ_degs <- read_tsv(chikv_deg_file)
 ```
 
-## Macrophages
+UMAP projections show sample groups (left), cell type annotations (middle),
+and CHIKV+ cells (right).
 
-### Subset annotations {.tabset .tabset-pills}
+```{r "cell type UMAPs", fig.height = 5, fig.width = 18}
+# UMAP showing samples
+u1 <- so %>%
+  plot_scatter(
+    "sample",
+    "UMAP_1", "UMAP_2",
+    size = 0.001,
+    plot_colors = sam_cols,
+    plot_lvls   = rev(sam_lvls)
+  ) +
+  umap_theme +
+  theme(
+    panel.border = element_rect(color = ln_col, linewidth = ln_pt),
+    legend.title = element_blank()
+  )
+
+# UMAP showing cell types
+u2 <- so %>%
+  plot_scatter(
+    "cell_type",
+    "UMAP_1", "UMAP_2",
+    size = 0.001,
+    plot_colors = type_cols
+  ) +
+  umap_theme +
+  theme(
+    panel.border = element_rect(color = ln_col, linewidth = ln_pt),
+    legend.title = element_blank()
+  )
+  
+# UMAP showing CHIKV+ cells
+u_labs <- so@meta.data %>%
+  filter(chikv_grp == chikv_grps[2]) %>%
+  group_by(cell_type) %>%
+  summarize(n = n(), .groups = "drop") %>%
+  arrange(desc(n)) %>%
+  mutate(
+    n = str_c(cell_type, "\nn = ", n)
+  )
+
+u_labs <- set_names(u_labs$n, u_labs$cell_type)
+
+u3 <- so@meta.data %>%
+  mutate(cell_type = fct_relevel(cell_type, names(u_labs))) %>%
+  ggplot(aes(UMAP_1, UMAP_2)) +
+  geom_point_trace(
+    trace_position = "bottom",
+    fill = "white",
+    stroke = 0.7,
+    size = 1
+  ) +
+  geom_point(
+    aes(color = cell_type),
+    data = ~ filter(.x, chikv_grp == chikv_grps[2]),
+    size = 1
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  scale_color_manual(values = type_cols, labels = u_labs) +
+  umap_theme +
+  theme(
+    panel.border = element_rect(color = ln_col, linewidth = ln_pt),
+    legend.title = element_blank()
+  )
+
+# Create final figure
+plot_grid(
+  u1, u2, u3,
+  nrow = 1,
+  align = "h",
+  axis  = "tb"
+)
+```
+
+<br>
+
+<br>
+
+The fraction of cells passing QC filtering cutoffs is shown for each sample.
+
+```{r "QC stats", fig.height = 3, fig.width = 8, out.width = "50%"}
+# Set colors
+qc_stats <- unique(so_raw_df$qc_class)
+
+qc_clrs <- set_names(
+  palette_OkabeIto[seq_along(qc_stats)],
+  qc_stats
+)
+
+# Create bargraphs
+so_raw_df %>%
+  mutate(
+    treatment = fct_relevel(treatment, treats)
+  ) %>%
+  ggplot(aes(rep, fill = qc_class)) +
+  geom_bar() +
+  facet_wrap(~ treatment, ncol = 1, switch = "y") +
+  scale_fill_manual(values = qc_clrs) +
+  scale_y_continuous(expand = expansion(c(0, 0))) +
+  coord_flip() +
+  labs(y = "number of cells") +
+  base_theme +
+  theme(
+    aspect.ratio = 0.2,
+    legend.title = element_blank(),
+    axis.line.y  = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y  = element_blank()
+  )
+```
+
+The fraction of CHIKV+ cells passing QC filtering cutoffs is shown for each
+sample.
+
+```{r "summarize filtered CHIKV+ cells", fig.height = 3, fig.width = 8, out.width = "50%"}
+br_dat <- so_enr_df %>%
+  filter(
+    !is.na(nCount_RNA),  # remove cells that are not present in unenriched data (<50)  
+    (enr_nCount_CHIKV > 0 | nCount_CHIKV > 0)
+  )
+  
+br_dat %>%
+  ggplot(aes("CHIKV+ cells", fill = qc_class)) +
+  geom_bar() +
+  scale_fill_manual(values = qc_clrs) +
+  scale_y_continuous(expand = expansion(c(0, 0))) +
+  coord_flip() +
+  labs(y = "number of CHIKV+ cells") +
+  base_theme +
+  theme(
+    aspect.ratio = 0.2,
+    legend.title = element_blank(),
+    axis.line.y  = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y  = element_blank()
+  )
+```
+
+---
+
+<br>
+
+<br>
+
+# Macrophages
+
+## Subset annotations {.tabset .tabset-pills}
 
 UMAP projections show macrophage subsets
 
@@ -552,11 +731,51 @@ plot_grid(
 
 <br>
 
-Heatmaps show mean expression of gene lists described
-by Culemann et al. Replicates are shown separately for each macrophage
-subset.
+<br>
 
-```{r "culemann heatmaps", results = "asis", fig.height = 10, fig.width = 8}
+Module scores for Culemann et al. gene lists are shown for each macrophage
+cluster.
+Clusters are colored based on the assigned subset labels.
+
+```{r "Culemann module scores", fig.width = 12, fig.height = 5}
+# Plot modules scores for each subset
+clrs <- mac_typ_cols_2
+clrs["infiltrating"] <- "#D7301F"
+
+so_mac %>%
+  FetchData(c(final_clsts$mac, "mac_type", feat_lvls)) %>%
+  pivot_longer(all_of(feat_lvls)) %>%
+  
+  mutate(
+    cluster = str_c(!!sym(final_clsts$mac), name),
+    cluster = fct_reorder(cluster, value, mean, .desc = TRUE)
+  ) %>%
+  ggplot(aes(cluster, value, fill = mac_type)) +
+  geom_boxplot(outlier.size = 0.5) +
+
+  facet_wrap(~ name, scale = "free", nrow = 2) +
+  scale_x_discrete(label = (function(x) str_extract(x, "^[0-9]+"))) +
+  scale_fill_manual(values = clrs) +
+  base_theme +
+  theme(
+    panel.border    = element_rect(color = ln_col, linewidth = ln_pt),
+    legend.position = c(0.75, 0.25),
+    legend.title    = element_blank(),
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    axis.title      = element_blank(),
+    axis.text.x     = element_text(size = 6)
+  )
+```
+
+<br>
+
+<br>
+
+Heatmaps show mean expression of Culemann et al. gene lists.
+Replicates are shown separately for each macrophage subset.
+
+```{r "culemann heatmaps", results = "asis", fig.height = 7, fig.width = 8}
 # Format culemann gene lists
 # Cx3cr1 is tagged with TdTomato
 var_feats <- VariableFeatures(so_mac)
@@ -607,7 +826,7 @@ rev(feats) %>%
     ttl <- .y
     gns <- .x
     
-    cat("\n\n####", ttl, "\n\n")
+    cat("\n\n###", ttl, "\n\n")
     
     # Filter for genes in gene list
     dat <- plt_dat %>%
@@ -707,138 +926,362 @@ rev(feats) %>%
   })
 ```
 
-<br>
+## CHIKV+ cells
 
-### CHIKV+ cells
+UMAP projections show CHIKV+ cells (left) and CHIKV-high clusters
+(middle, right) for CHIKV-infected samples.
 
-```{r "WIP CHIKV+", eval = FALSE}
-# UMAPs
-so_mac %>%
-  plot_scatter(
-    "chikv_grp",
-    "hUMAP_1", 
-    "hUMAP_2",
-    group_col = "treatment",
-    size = 2,
-    top = "CHIKV-high"
-  )
+```{r "CHIKV+ clusters", fig.width = 10, fig.height = 4.5}
+# Set plot colors
+chikv_clst_grp_clrs <- c(
+  `CHIKV-high` = "#035B8F",
+  `CHIKV-low`  = "#009E73"
+)
 
-so_mac %>%
-  plot_scatter(
-    "Il1b",
-    "hUMAP_1",
-    "hUMAP_2",
-    group_col = "treatment",
-    size = 2
-  )
-
-so_mac %>%
-  plot_violin(
-    "pct_mito",
-    cluster_col = "chikv_grp",
-    group_col = "mac_type",
-    method = "boxplot"
-  )
-
-# DEGs CHIKV-high
-degs <- unique(so_mac$mac_type) %>%
-  map_dfr(~ {
-    so_mac %>%
-      subset(
-        treatment == "CHIKV" &
-          mac_type == .x
-      ) %>%
-      wilcoxauc(group_by = "chikv_grp", seurat_assay = "RNA") %>%
-      mutate(cell_type = .x)
-  })
-
-degs <- so_mac %>%
-  subset(
-    treatment == "CHIKV"
-    # mac_type == "infiltrating"
-  ) %>%
-  wilcoxauc(group_by = "chikv_grp", seurat_assay = "RNA")
-
-gns <- degs %>%
-  filter(
-    group == "CHIKV-high",
-    padj < 0.05,
-    logFC > 0
-    # pct_in > 25,
-    # cell_type == "infiltrating"
-    # cell_type != "unassigned"
-  ) %>%
-  arrange(desc(logFC)) %>%
-  mutate(n_cells = 78 * (pct_in / 100)) %>%
-  filter(n_cells >= 10) %>%
-  pull(feature)
-
-go <- gns %>%
-  gost(organism = "mmusculus", evcodes = TRUE)
-
-# Plot DEGs
-gns[1:10] %>%
-  map(~ {
-    so_mac %>%
-      # mutate_meta(
-      #   mutate,
-      #   chikv_grp = case_when(
-      #     mac_type == "infiltrating" & chikv_grp == "CHIKV-high" ~ chikv_grp,
-      #     chikv_grp == "CHIKV-high" ~ "other CHIKV-high",
-      #     mac_type == "infiltrating" ~ mac_type,
-      #     TRUE ~ chikv_grp
-      #   )
-      # ) %>%
-      plot_violin(
-        .x,
-        cluster_col = "chikv_grp",
-        group_col = "mac_type",
-        method = "boxplot",
-        # plot_lvls = c("CHIKV-high", "other CHIKV-high", "infiltrating", "CHIKV-low")
-        panel_nrow = 1
-      ) +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  }) %>%
-  plot_grid(plotlist = .)
-
-# Chi-square
-# old_mac <- qread(here(dirs$so_dir, "2023-12-27/so_mac.qs"))
-old_mac <- qread(here(dirs$so_dir, "original_objects/so_int.qs"))
-
-dat <- old_mac@meta.data %>%
-# dat <- so_mac@meta.data %>%
+# Create UMAP showing CHIKV+ cells
+u_dat <- so_mac@meta.data %>%
   filter(treatment == "CHIKV")
-  # select(mac_type, chikv_grp)
 
-# Calculate the necessary values
-typ <- "CX3CR1_lining"
-typ <- "infiltrating"
-typ <- "unassigned"
-typ <- "RELMa_interstitial"
-typ <- "AQP1_interstitial"
+u1 <- u_dat %>%
+  ggplot(aes(hUMAP_1, hUMAP_2)) +
+  
+  geom_point_trace(
+    trace_position = "bottom",
+    fill = "white",
+    size = 1.5
+  ) +
+  geom_point(
+    aes(color = mac_type),
+    data = ~ filter(.x, chikv_grp == chikv_grps[2]),
+    size = 2
+  ) +
+  scale_color_manual(values = mac_typ_cols_2) +
+  guides(color = guide_legend(nrow = 3)) +
+  umap_theme +
+  theme(
+    legend.position = "bottom",
+    legend.title    = element_blank(),
+    legend.text     = element_text(size = 12),
+    panel.border    = element_rect(color = ln_col, linewidth = ln_pt)
+  )
 
-unique(dat$mac_type) %>%
-  map_dfr(~ {
-    N <- nrow(dat) # Total number of cells
-    K <- sum(dat$chikv_grp == "CHIKV-high") # Total number of CHIKV-high cells
-    n <- sum(dat$mac_type == .x) # Number of cells in infiltrating
-    x <- sum(dat$mac_type == .x & dat$chikv_grp == "CHIKV-high") # Ag-competent in CHIKV
-    
-    # Perform the hypergeometric test
-    tibble(
-      mac_type = .x,
-      p        = phyper(x, K, N - K, n, lower.tail = FALSE)
-    )
-  }) %>%
-  mutate(padj = p.adjust(p, method = "bonferroni"))
+# Create UMAP showing CHIKV-high clusters
+u2 <- u_dat %>%
+  plot_scatter(
+    "chikv_clst_grp",
+    "hUMAP_1", "hUMAP_2",
+    size        = 1,
+    plot_colors = chikv_clst_grp_clrs,
+    n_label     = "legend"
+  ) +
+  umap_theme +
+  theme(
+    legend.position = "bottom",
+    legend.title    = element_blank(),
+    legend.text     = element_text(size = 12),
+  )
 
-# dat %>%
-#   write_tsv("chikv_high_macs.tsv.gz")
+# Bargraph showing CHIKV-low/high clusters
+br <- u_dat %>%
+  ggplot(aes(rep, fill = mac_type)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ chikv_clst_grp, nrow = 1) +
+  labs(y = "fraction of cells") +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  scale_y_continuous(breaks = c(0, 0.5, 1), expand = expansion(c(0, 0))) +
+  base_theme +
+  theme(
+    aspect.ratio    = 2.5,
+    legend.position = "none",
+    strip.text      = element_text(size = 12),
+    axis.title.x    = element_blank()
+  )
+
+# Create final figure
+plot_grid(
+  u1, u2, br,
+  nrow  = 1,
+  align = "h",
+  axis  = "tb",
+  rel_widths = c(1, 1, 0.7)
+)
 ```
 
 <br>
 
-### Differential expression {.tabset .tabset-pills}
+<br>
+
+The fraction of cells that are CHIKV+ is shown for each replicate from each
+macrophage subset.
+P values were calculated by pooling replicates together, using a hypergeometric
+test with Bonferroni correction.
+
+```{r "fraction CHIKV+", fig.width = 10, fig.height = 3}
+# # Old object
+# old_mac <- qread(here(dirs$so_dir, "original_objects/so_int.qs"))
+
+# Format data
+# frac_dat <- old_mac@meta.data %>%
+frac_dat <- so_mac@meta.data %>%
+  filter(treatment == "CHIKV")
+
+# Calculate p-values using hypergeometric test
+p_dat <- names(mac_typ_cols_2) %>%
+  map_dfr(~ {
+    res <- frac_dat %>%
+      filter(mac_type == .x) %>%
+      group_by(mac_type, rep) %>%
+      summarize(
+        n_cells = n(),
+        n_high  = sum(chikv_grp == "CHIKV-high"),
+        frac    = n_high / n_cells,
+        .groups = "drop"
+      )
+
+    N <- nrow(frac_dat) # Total number of cells
+    K <- sum(frac_dat$chikv_grp == "CHIKV-high") # Total number of CHIKV-high cells
+    n <- sum(frac_dat$mac_type == .x) # Number of cells in infiltrating
+    x <- sum(frac_dat$mac_type == .x & frac_dat$chikv_grp == "CHIKV-high") # Ag-competent in CHIKV
+    
+    # Perform the hypergeometric test
+    # set lower.tail FALSE to test for enrichment in each group
+    p <- phyper(x, K, N - K, n, lower.tail = FALSE)
+    
+    res %>%
+      mutate(p = p)
+  }) %>%
+  group_by(rep) %>%  # since a single p-value was calculated for each subset 
+  mutate(padj = p.adjust(p, method = "bonferroni")) %>%
+  
+  group_by(mac_type) %>%
+  mutate(tot_frac = sum(n_high) / sum(n_cells)) %>%
+  
+  rowwise() %>%
+  mutate(
+    plab = .format_pvalue(padj),
+    plab = str_c("italic(p) == ", plab),
+    nlab = str_c(label_comma()(n_high), "/", label_comma()(n_cells))
+  ) %>%
+  ungroup() %>%
+  mutate(mac_type = fct_reorder(mac_type, tot_frac, .desc = TRUE))
+
+# Create bargraphs
+p_dat %>%
+  ggplot(aes(mac_type, frac, fill = mac_type, alpha = rep)) +
+  geom_col(position = position_dodge(width = 0.65), width = 0.6) +
+  geom_text(
+    aes(label = nlab),
+    vjust = -0.5,
+    position = position_dodge(width = 0.65)
+  ) +
+  geom_text(
+    aes(y = Inf, alpha = NULL, fill = NULL, label = plab),
+    data = ~ distinct(.x, mac_type, plab),
+    parse = TRUE,
+    vjust = 1.25
+  ) +
+  scale_y_continuous(expand = expansion(c(0.05, 0.4))) +
+  scale_x_discrete(expand = expansion(c(0.1, 0.1))) +
+  scale_alpha_manual(values = rep(1, n_rep)) +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  labs(y = "fraction CHIKV+ cells") +
+  guides(alpha = "none") +
+  base_theme +
+  theme(
+    panel.border    = element_rect(colour = ln_col, linewidth = ln_pt),
+    legend.position = "none",
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    axis.title.x    = element_blank()
+  )
+```
+
+
+
+```{r "OLD CHIKV+ CLUSTERS", eval = FALSE}
+# Plot difference in subset proportions for CHIKV-low/high clusters
+so_mac@meta.data %>%
+  filter(treatment == "CHIKV") %>%
+  mutate(grp = str_c(rep, chikv_clst_grp)) %>%
+  plot_frequency(
+    "mac_type",
+    cluster_col = "grp",
+    group_col   = "chikv_clst_grp",
+    p_method    = "edgeR",
+    plot_colors = chikv_grp_clrs,
+    color       = "black",
+    alpha       = 1
+  )
+
+# Plot proportion of cells belonging to each subset for CHIKV-low/high clusters
+so_mac@meta.data %>%
+  filter(treatment == "CHIKV") %>%
+  arrange(chikv_clst_grp) %>%
+  group_by(chikv_clst_grp) %>%
+  mutate(
+    chikv_clst_grp = str_c(chikv_clst_grp, "\nn = ", label_comma()(n())),
+    chikv_clst_grp = fct_inorder(chikv_clst_grp)
+  ) %>%
+  
+  ggplot(aes(rep, fill = mac_type)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  facet_wrap(~ chikv_clst_grp, nrow = 1) +
+  base_theme
+
+# Plot UMAP showing fraction CHIKV+ cells
+so_mac@meta.data %>%
+  filter(treatment == treats[2]) %>%
+  ggplot(aes(
+    hUMAP_1, hUMAP_2,
+    fill = frac_chikv_cells
+  )) +
+  geom_point_trace() +
+  # geom_point(
+  #   aes(color = mac_type),
+  #   data = ~ filter(.x, chikv_grp == chikv_grps[2]),
+  #   size = 3
+  # ) +
+  # scale_color_manual(values = mac_typ_cols_2) +
+  scale_fill_gradientn(colours = c("white", "#D7301F", "#D7301F")) +
+  umap_theme
+
+# UMAP showing chikv_clst_grps  
+so_mac@meta.data %>%
+  filter(treatment == treats[2]) %>%
+  plot_scatter(
+    "chikv_clst_grp",
+    "hUMAP_1", "hUMAP_2",
+    outline = TRUE,
+    plot_colors = chikv_grp_clrs
+  )
+
+# Bargraph showing fraction CHIKV+ cells
+so_mac@meta.data %>%
+  filter(treatment == treats[2]) %>%
+  group_by(!!sym(final_clsts$mac), chikv_clst_grp) %>%
+  mutate(n = n()) %>%
+  ungroup() %>%
+  distinct(!!sym(final_clsts$mac), chikv_clst_grp, frac_chikv_cells, n) %>%
+  mutate(
+    !!sym(final_clsts$mac) := str_c(!!sym(final_clsts$mac), "\n(", n, ")")
+  ) %>%
+  mutate(
+    !!sym(final_clsts$mac) := fct_reorder(
+      !!sym(final_clsts$mac), frac_chikv_cells,
+      .desc = TRUE
+    )
+  ) %>%
+  
+  ggplot(aes(!!sym(final_clsts$mac), frac_chikv_cells, fill = chikv_clst_grp)) +
+  geom_col(color = "black") +
+  labs(x = "cluster", y = "fraction CHIKV+ cells") +
+  scale_fill_manual(values = chikv_grp_clrs) +
+  base_theme +
+  theme(legend.title = element_blank())
+```
+
+```{r "OLD CHIKV+", eval = FALSE}
+# Chi-square
+# old_mac <- qread(here(dirs$so_dir, "2023-12-27/so_mac.qs"))
+# old_mac <- qread(here(dirs$so_dir, "original_objects/so_int.qs"))
+
+# dat <- old_mac@meta.data %>%
+# # dat <- so_mac@meta.data %>%
+#   filter(treatment == "CHIKV")
+#   # select(mac_type, chikv_grp)
+
+# # DEGs CHIKV-high
+# degs <- unique(so_mac$mac_type) %>%
+#   map_dfr(~ {
+#     so_mac %>%
+#       subset(
+#         treatment == "CHIKV" &
+#           mac_type == .x
+#       ) %>%
+#       wilcoxauc(group_by = "chikv_grp", seurat_assay = "RNA") %>%
+#       mutate(cell_type = .x)
+#   })
+# 
+# degs <- so_mac %>%
+#   subset(
+#     treatment == "CHIKV"
+#     # mac_type == "infiltrating"
+#   ) %>%
+#   wilcoxauc(group_by = "chikv_grp", seurat_assay = "RNA")
+# 
+# gns <- degs %>%
+#   filter(
+#     group == "CHIKV-high",
+#     padj < 0.05,
+#     logFC > 0
+#     # pct_in > 25,
+#     # cell_type == "infiltrating"
+#     # cell_type != "unassigned"
+#   ) %>%
+#   arrange(desc(logFC)) %>%
+#   mutate(n_cells = 78 * (pct_in / 100)) %>%
+#   filter(n_cells >= 10) %>%
+#   pull(feature)
+# 
+# go <- gns %>%
+#   gost(organism = "mmusculus", evcodes = TRUE)
+# 
+# # Plot DEGs
+# gns[1:10] %>%
+#   map(~ {
+#     so_mac %>%
+#       # mutate_meta(
+#       #   mutate,
+#       #   chikv_grp = case_when(
+#       #     mac_type == "infiltrating" & chikv_grp == "CHIKV-high" ~ chikv_grp,
+#       #     chikv_grp == "CHIKV-high" ~ "other CHIKV-high",
+#       #     mac_type == "infiltrating" ~ mac_type,
+#       #     TRUE ~ chikv_grp
+#       #   )
+#       # ) %>%
+#       plot_violin(
+#         .x,
+#         cluster_col = "chikv_grp",
+#         group_col = "mac_type",
+#         method = "boxplot",
+#         # plot_lvls = c("CHIKV-high", "other CHIKV-high", "infiltrating", "CHIKV-low")
+#         panel_nrow = 1
+#       ) +
+#       theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#   }) %>%
+#   plot_grid(plotlist = .)
+
+# dat %>%
+#   write_tsv("chikv_high_macs.tsv.gz")
+
+# # UMAPs
+# so_mac %>%
+#   plot_scatter(
+#     "Il1b",
+#     "hUMAP_1",
+#     "hUMAP_2",
+#     group_col = "treatment",
+#     size = 2
+#   )
+# 
+# so_mac %>%
+#   subset(treatment == "CHIKV") %>%
+#   plot_violin(
+#     "pct_mito",
+#     cluster_col = "chikv_grp",
+#     group_col = "mac_type",
+#     method = "boxplot"
+#   )
+```
+
+---
+
+<br>
+
+<br>
+
+## Differential expression {.tabset .tabset-pills}
 
 Heatmap shows top upregulated genes associated with inflammatory disease for
 CHIKV vs mock-infected macrophages
@@ -912,6 +1355,8 @@ dat %>%
     axis.text.y  = element_text(size = 8.5)
   )
 ```
+
+<br>
 
 <br>
 
@@ -1016,18 +1461,25 @@ plot_grid(
 
 <br>
 
+<br>
+
 Top genes upregulated in CHIKV-infected mice are shown below for each
 macrophage subset.
 
 ```{r "DEG upset plot", fig.width = 10, fig.height = 4}
-degs_upset <- mac_degs %>%
+upset_dat <- mac_degs %>%
   split(.$direction) %>%
   imap(~ {
     .x %>%
       group_by(cell_type) %>%
       mutate(cell_type = str_c(cell_type, " (", label_comma()(n()), ")")) %>%
       group_by(gene) %>%
-      summarize(cell_type = list(cell_type), .groups = "drop") %>%
+      summarize(cell_type = list(cell_type), .groups = "drop")
+  })
+    
+degs_upset <- upset_dat %>%
+  imap(~ {
+    .x %>%
       ggplot(aes(cell_type)) +
       geom_bar(fill = "#009E73") +
       geom_text(stat = "count", aes(label = after_stat(count)), vjust = -1, size = 8 / .pt, alpha = 1) +
@@ -1110,18 +1562,17 @@ heats <- mac_degs %>%
 # Print plots
 heats %>%
   iwalk(~ {
-    cat("\n\n####", .y, "\n\n")
+    cat("\n\n###", .y, "\n\n")
     
     print(.x)
     
-    cat("\n\n<br>\n\n")
-    # cat("\n\n---\n\n<br>\n\n<br>\n\n")
+    cat("\n\n---\n\n<br>\n\n<br>\n\n")
   })
 ```
 
-### Simmons et al. {.tabset .tabset-pills}
+## Simmons et al. {.tabset .tabset-pills}
 
-```{r "simmons module scores", fig.width = 10, fig.height = 10, results = "asis"}
+```{r "simmons module scores", fig.width = 10, fig.height = 9, results = "asis"}
 # Add module scores to object
 mods <- simmons_genes %>%
   map(~ unique(.x$gene_mm))
@@ -1233,7 +1684,7 @@ mod_plts <- names(mods) %>%
 
 mod_plts %>%
   iwalk(~ {
-    cat("\n\n####", .y, "\n\n")
+    cat("\n\n###", .y, "\n\n")
     
     print(.x)
     
@@ -1241,12 +1692,12 @@ mod_plts %>%
   })
 ```
 
-## T cells
+# T cells
 
 Genes upregulated in T cells from CHIKV vs mock-infected mice are shown below.
 All CD4+ or CD8+ T cells were grouped together.
 
-```{r "upreg T cells", fig.width = 8, fig.height = 10, out.width = "30%"}
+```{r "upreg T cells", fig.width = 4, fig.height = 5, out.width = "30%"}
 # Select genes to plot
 gns <- t_all_degs_2 %>%
   filter(
@@ -1530,6 +1981,8 @@ plot_grid(
   rel_widths = c(1, 0.7)
 )
 ```
+
+<br>
 
 <br>
 

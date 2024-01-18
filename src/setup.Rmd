@@ -191,6 +191,20 @@ sobjs <- mats %>%
     virus_assay = "CHIKV"
   ))
 
+# Format sample/replicate names
+sobjs <- sobjs %>%
+  map(~ {
+    .x %>%
+      mutate_meta(
+        mutate,
+        treatment = str_extract(orig.ident, "^[A-Z]+"),
+        treatment = treats[treatment],
+        rep       = str_extract(orig.ident, "[0-9]+$"),
+        tm        = params$tm,
+        sample    = str_c(treatment, tm, rep, sep = "-")
+      )
+  })
+
 # Identify low quality cells
 # use adaptive cutoffs from scuttle package
 # also set absolute max for pct_mito
@@ -205,13 +219,27 @@ sobjs <- sobjs %>%
       as_tibble() %>%
       mutate(
         across(everything(), as.logical),
-        qc_pass  = !discard & pct_mito < params$mito_max,
+        qc_class = case_when(
+          low_lib_size               ~ "low_reads",
+          low_n_features             ~ "low_gene_count",
+          high_pct_mito              ~ "high_mito_reads",
+          !discard                   ~ "pass"
+        ),
         .cell_id = Cells(.x)
       ) %>%
       column_to_rownames(".cell_id")
 
     .x %>%
-      AddMetaData(qc)
+      AddMetaData(qc) %>%
+      mutate_meta(
+        mutate,
+        qc_class = ifelse(
+          pct_mito > params$mito_max,
+          "high_mito_reads",
+          qc_class
+        ),
+        qc_pass = pc_class == "pass"
+      )
   })
 ```
 
@@ -229,12 +257,12 @@ sobjs <- sobjs %>%
       ) %>%
       mutate_meta(
         mutate,
-        qc_pass = qc_pass & dbl_class != "Doublet"
-        # qc_class = ifelse(
-        #   !is.na(dbl_class) & dbl_class == "Doublet",
-        #   str_to_lower(dbl_class),
-        #   qc_class
-        # )
+        qc_class = ifelse(
+          !is.na(dbl_class) & dbl_class == "Doublet",
+          str_to_lower(dbl_class),
+          qc_class
+        ),
+        qc_pass = qc_class == "pass"
       )
   })
 
@@ -261,20 +289,6 @@ sobjs <- sobjs %>%
 ```
 
 ```{r "cluster cells", eval = create_so}
-# Format sample/replicate names
-sobjs <- sobjs %>%
-  map(~ {
-    .x %>%
-      mutate_meta(
-        mutate,
-        treatment = str_extract(orig.ident, "^[A-Z]+"),
-        treatment = treats[treatment],
-        rep       = str_extract(orig.ident, "[0-9]+$"),
-        tm        = params$tm,
-        sample    = str_c(treatment, tm, rep, sep = "-")
-      )
-  })
-
 # Filter, normalize, and merge objects
 so <- sobjs %>%
   map(~ {
@@ -361,23 +375,15 @@ so_enr_df <- so_enr %>%
   rename_with(~ str_c("enr_", .x), .cols = all_of(names(chikv_feats))) %>%
   rownames_to_column("cell_id")
 
+# Merge with unenriched data from all cells
+# NAs indicate cells that are present in enr data but not unenr data
 so_enr_df <- so_raw_df %>%
-  full_join(so_enr_df, by = c("cell_id", "orig.ident"))
-
-# Add meta.data from filtered Seurat object
-clmns <- c(
-  "cell_id", "orig.ident",
-  "UMAP_1",  "UMAP_2"
-)
-
-so_enr_df <- so@meta.data %>%
-  as_tibble(rownames = "cell_id") %>%
-  dplyr::select(any_of(clmns)) %>%
   full_join(so_enr_df, by = c("cell_id", "orig.ident")) %>%
   dplyr::rename_with(
     .cols = starts_with("CHIKV"),
     ~ str_remove(.x, "_AF15561")
-  )
+  ) %>%
+  mutate(across(starts_with("enr_"), ~ replace_na(.x, 0)))
 
 # Format enriched counts
 enr_counts <- so_enr_df %>%
@@ -618,7 +624,7 @@ feats_use <- feat_lvls
 ann_key <- c(
   AQP1_interstitial      = -0.1,
   CCR2_IL1B_infiltrating = 0.3,
-  CCR2_ARG1_infiltrating = 0.6,
+  CCR2_ARG1_infiltrating = 0.3,
   CX3CR1_lining          = 0.75,
   RELMa_interstitial     = 0.61
 )
@@ -1049,8 +1055,11 @@ save_objs(so_t, ob_dir = dirs$so_dir)
 
 ```{r "load objects"}
 # Load Seurat objects
-so     <- qread(here(dirs$so_dir, "so.qs"))
-so_df  <- read_tsv(here(dirs$so_dir, "so.tsv.gz"))
+so <- qread(here(dirs$so_dir, "so.qs"))
+
+so_df <- so@meta.data %>%
+  as_tibble(rownames = "cell_id")
+
 so_mac <- qread(here(dirs$so_dir, "so_mac.qs"))
 so_t   <- qread(here(dirs$so_dir, "so_t.qs"))
 

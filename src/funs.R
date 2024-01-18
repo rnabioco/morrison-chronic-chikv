@@ -1383,6 +1383,68 @@ add_pvals <- function(gg_in, x, xend, y, p_val, prefix = "", format_p = TRUE,
   res
 }
 
+#' Format p values for labels
+#' 
+#' modified from djvdj
+.format_pvalue <- function(p, digits = 1, cutoffs = NULL, show_decimal = 0.1) {
+  
+  # Set p label based on vector of cutoffs
+  if (!is.finite(p)) return(as.character(NA))
+  
+  if (!is.null(cutoffs)) {
+    if (any(duplicated(cutoffs))) {
+      cli::cli_abort("Cutoff values for p_label must be unique.")
+    }
+    
+    # Set default labels when not provided by user
+    if (is.null(names(cutoffs))) {
+      cutoffs <- sort(cutoffs, decreasing = TRUE)
+      
+      names(cutoffs) <- purrr::imap_chr(
+        cutoffs, ~ paste0(rep("*", .y), collapse = "")
+      )
+    }
+    
+    cutoffs <- sort(cutoffs)
+    p_label <- as.character(NA)
+    
+    for (val in names(cutoffs)) {
+      if (p < cutoffs[val]) {
+        p_label <- val
+        
+        break()
+      }
+    }
+    
+    # Treat "value" as a keyword that will allow user to display actual
+    # p-value for a certain cutoff
+    # All custom labels need to be wrapped in quotes for parsing
+    if (!identical(p_label, "value")) {
+      if (!is.na(p_label)) p_label <- paste0("\'", p_label, "\'")
+      
+      return(p_label)
+    }
+  }
+  
+  # Format p-value label
+  # label_scientific will round 0.095 to 0.1 when digits = 1
+  if (round(p, digits + 1) >= show_decimal) return(as.character(round(p, 1)))
+  
+  p <- scales::label_scientific(digits = digits)(p)
+  
+  ex <- str_extract_all(p, "[+\\-][0-9]+$")
+  
+  p <- sub(paste0("\\", ex, "$"), "", p)
+  
+  ex <- as.numeric(ex)
+  ex <- as.character(ex)
+  
+  p <- sub("e", "*x*10^", p)
+  p <- paste0(p, ex)
+  
+  p
+}
+
 
 # Figures ----
 
