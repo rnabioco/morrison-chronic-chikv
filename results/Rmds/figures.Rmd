@@ -1283,10 +1283,110 @@ so_mac@meta.data %>%
 
 ## Differential expression {.tabset .tabset-pills}
 
-Heatmap shows top upregulated genes associated with inflammatory disease for
-CHIKV vs mock-infected macrophages
+Top upregulated genes associated with inflammatory disease are shown below for
+mock- vs CHIKV-infected macrophages.
 
-```{r, fig.width = 2.5, fig.height = 6, out.width = "30%"}
+```{r, fig.width = 10, fig.height = 6.5}
+# gns <- c("Nlrp3", "Tlr2", "Mdm2", "Plau", "Slamf7")
+# gns <- head(top_gsea_gns, 3)
+gns <- c("Nlrp3", "Il1b", "Rgs1")
+
+u_clrs    <- grp_cols
+u_clrs[1] <- lighten("#009E73", 0.2)
+
+names(u_clrs) <- treats
+
+gn_boxes <- gns %>%
+  map(~ {
+    d <- so_mac %>%
+      FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", .x)) %>%
+      mutate(treatment = fct_relevel(treatment, treats))
+    
+    u <- d %>%
+      plot_scatter(
+        .x,
+        "hUMAP_1", "hUMAP_2",
+        group_col   = "treatment",
+        plot_colors = c("#56B4E9", "white", "#6A51A3"),
+        n_label     = "none",
+        size        = 0.1
+      ) +
+      guides(color = guide_colorbar(title.position = "top", ticks = FALSE)) +
+      umap_theme_2 +
+      theme(
+        legend.position = "left",
+        legend.justification = "center",
+        legend.key.width  = unit(6, "pt"),
+        legend.key.height = unit(15, "pt"),
+        legend.title = element_text(size = 12)
+      )
+    
+    bx <- d %>%
+      ggplot(aes(rep, !!sym(.x), fill = treatment)) +
+      geom_boxplot(outlier.size = 0.25) +
+      scale_fill_manual(values = u_clrs) +
+      facet_wrap(~ treatment) +
+      base_theme +
+      theme(
+        legend.position = "none",
+        panel.border    = element_blank(),
+        axis.line.y     = element_line(color = "grey85", size = 0.5),
+        axis.title      = element_blank(),
+        axis.text.x     = element_blank(),
+        axis.ticks.x    = element_blank()
+      )
+    
+    plot_grid(
+      u, bx,
+      align = "h",
+      axis  = "tb",
+      nrow = 1,
+      rel_widths = c(1, 0.5)
+    )
+  })
+
+ex_plts <- plot_grid(
+  plotlist = gn_boxes,
+  align = "v",
+  axis  = "rl",
+  ncol  = 1
+)
+
+
+
+# gns <- gsea_res@result %>%
+#   dplyr::filter(Description == "arthritis") %>%
+#   pull(core_enrichment)
+# 
+# gns <- gns %>%
+#   str_split("/") %>%
+#   flatten() %>%
+#   as.character()
+# 
+# gns <- hlogs %>%
+#   dplyr::filter(gene %in% gns) %>%
+#   pull(gene_mm)
+
+# gns[1:16] %>%
+#   map(~ {
+#     if (!.x %in% rownames(x@assays$RNA)) return(NULL)
+#     
+#     so_mac %>%
+#       FetchData(c(.x, "UMAP_1", "UMAP_2", "treatment", "chikv_clst_grp")) %>%
+#       arrange(!!sym(.x)) %>%
+#       ggplot(aes(UMAP_1, UMAP_2, color = !!sym(.x))) +
+#       geom_point(size = 0.25) +
+#       scale_color_gradientn(colours = c("blue", "white", "red")) +
+#       umap_theme
+#   }) %>%
+#   plot_grid(
+#     plotlist = .,
+#     align = "vh",
+#     axis  = "trbl"
+#   )
+```
+
+```{r, fig.width = 9, fig.height = 6}
 # GSEA genes associated with bone disease
 terms_re <- c("connective", "musculoskeletal", "arthritis", "bone") %>%
   str_c(collapse = "|")
@@ -1336,127 +1436,34 @@ dat <- so_mac %>%
   )
   
 # Create heatmap
-dat %>%
+ex_heat <- dat %>%
   ggplot(aes(rep, name, fill = value)) +
   geom_tile(color = ln_col) +
   scale_fill_gradientn(colours = c("white", "#0072B2")) +
   guides(fill = guide_colorbar(ticks = FALSE)) +
   facet_wrap(~ treatment) +
-  djvdj_theme() +
+  base_theme +
   theme(
-    strip.clip   = "off",
-    strip.text   = element_text(size = 8.5),
-    panel.border = element_blank(),
-    axis.ticks   = element_blank(),
-    legend.key.width = unit(10, "pt"),
-    legend.key.height = unit(30, "pt"),
-    axis.title   = element_blank(),
-    legend.title = element_blank(),
-    axis.text.y  = element_text(size = 8.5)
+    aspect.ratio      = length(top_gsea_gns) / n_rep,
+    panel.border      = element_blank(),
+    legend.position   = "bottom",
+    legend.key.width  = unit(12, "pt"),
+    legend.key.height = unit(6, "pt"),
+    legend.title      = element_blank(),
+    strip.clip        = "off",
+    axis.line.x       = element_blank(),
+    axis.ticks.x      = element_blank(),
+    axis.title        = element_blank(),
+    axis.text.x       = element_blank(),
+    axis.text.y       = element_text(size = 8.5)
   )
-```
 
-<br>
-
-<br>
-
-UMAP projections show examples of upregulated genes for mock vs CHIKV-infected
-macrophages
-
-```{r, fig.width = 10, fig.height = 6.5}
-# gns <- c("Nlrp3", "Tlr2", "Mdm2", "Plau", "Slamf7")
-gns <- head(top_gsea_gns, 4)
-
-u_clrs    <- grp_cols
-u_clrs[1] <- lighten("#009E73", 0.2)
-
-names(u_clrs) <- treats
-
-gn_boxes <- gns %>%
-  map(~ {
-    d <- so_mac %>%
-      FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", .x)) %>%
-      mutate(treatment = fct_relevel(treatment, treats))
-    
-    u <- d %>%
-      plot_scatter(
-        .x,
-        "hUMAP_1", "hUMAP_2",
-        plot_colors = c("#56B4E9", "white", "#6A51A3"),
-        n_label = "none",
-        size    = 0.7
-      ) +
-      guides(color = guide_colorbar(title.position = "top", barheight = unit(6, "pt"), barwidth = unit(100, "pt"), ticks = FALSE)) +
-      umap_theme +
-      theme(
-        legend.position = "top",
-        legend.justification = "center",
-        legend.title = element_text(size = 20)
-      )
-    
-    bx <- d %>%
-      ggplot(aes(rep, !!sym(.x), fill = treatment)) +
-      geom_boxplot(outlier.size = 0.25) +
-      scale_fill_manual(values = u_clrs) +
-      facet_wrap(~ treatment) +
-      djvdj_theme() +
-      theme(
-        legend.position = "none",
-        panel.border    = element_blank(),
-        axis.line.y     = element_line(color = "grey85", size = 0.5),
-        axis.title      = element_blank(),
-        axis.text.x     = element_blank(),
-        axis.ticks.x    = element_blank()
-      )
-    
-    plot_grid(
-      u, bx,
-      align = "vh",
-      axis  = "trbl",
-      nrow = 1,
-      rel_widths = c(1, 0.82)
-    )
-  })
-
+# Create final figure
 plot_grid(
-  plotlist = gn_boxes,
-  align = "vh",
-  axis  = "trbl",
-  ncol  = 2
+  ex_heat, ex_plts,
+  nrow = 1,
+  rel_widths = c(0.4, 1)
 )
-
-
-
-# gns <- gsea_res@result %>%
-#   dplyr::filter(Description == "arthritis") %>%
-#   pull(core_enrichment)
-# 
-# gns <- gns %>%
-#   str_split("/") %>%
-#   flatten() %>%
-#   as.character()
-# 
-# gns <- hlogs %>%
-#   dplyr::filter(gene %in% gns) %>%
-#   pull(gene_mm)
-
-# gns[1:16] %>%
-#   map(~ {
-#     if (!.x %in% rownames(x@assays$RNA)) return(NULL)
-#     
-#     so_mac %>%
-#       FetchData(c(.x, "UMAP_1", "UMAP_2", "treatment", "chikv_clst_grp")) %>%
-#       arrange(!!sym(.x)) %>%
-#       ggplot(aes(UMAP_1, UMAP_2, color = !!sym(.x))) +
-#       geom_point(size = 0.25) +
-#       scale_color_gradientn(colours = c("blue", "white", "red")) +
-#       umap_theme
-#   }) %>%
-#   plot_grid(
-#     plotlist = .,
-#     align = "vh",
-#     axis  = "trbl"
-#   )
 ```
 
 <br>
