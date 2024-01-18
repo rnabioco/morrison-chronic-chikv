@@ -15,6 +15,7 @@ library(broom)
 library(here)
 library(cowplot)
 library(knitr)
+library(furrr)
 
 # Plotting
 library(ggtrace)
@@ -92,6 +93,9 @@ treats <- c(
 
 # CHIKV group labels
 chikv_grps <- c("CHIKV-low", "CHIKV-high")
+
+# QC stats to ignore for CHIKV+ cells
+chikv_ignore_stats <- c("low_features", "high_mito_counts")
 ```
 
 ```{r "references", echo = FALSE}
@@ -220,10 +224,10 @@ sobjs <- sobjs %>%
       mutate(
         across(everything(), as.logical),
         qc_class = case_when(
-          low_lib_size               ~ "low_reads",
-          low_n_features             ~ "low_gene_count",
-          high_pct_mito              ~ "high_mito_reads",
-          !discard                   ~ "pass"
+          low_lib_size   ~ "low_counts",
+          low_n_features ~ "low_features",
+          high_pct_mito  ~ "high_mito_counts",
+          !discard       ~ "pass"
         ),
         .cell_id = Cells(.x)
       ) %>%
@@ -235,10 +239,10 @@ sobjs <- sobjs %>%
         mutate,
         qc_class = ifelse(
           pct_mito > params$mito_max,
-          "high_mito_reads",
+          "high_mito_counts",
           qc_class
         ),
-        qc_pass = pc_class == "pass"
+        qc_pass = qc_class == "pass"
       )
   })
 ```
@@ -288,52 +292,17 @@ sobjs <- sobjs %>%
 #   })
 ```
 
-```{r "cluster cells", eval = create_so}
-# Filter, normalize, and merge objects
-so <- sobjs %>%
-  map(~ {
-    .x %>%
-      subset(qc_pass) %>%
-      norm_sobj(
-        cc_scoring = TRUE,
-        rna_method = "LogNormalize",
-        scale_data = FALSE
-      )
-  })
-
-so <- merge(so[[1]], so[-1], add.cell.ids = names(so))
-
-# Cluster cells
-# find variable features with M3Drop
-so <- so %>%
-  run_m3drop(assay = "RNA", var_p = 0.001) %>%
-  ScaleData(assay = "RNA", vars.to.regress = "pct_mito") %>%
-  cluster_RNA(
-    assay      = "RNA",
-    resolution = rslns,
-    dims       = 1:50
-  )
-
+```{r "save raw objects", eval = create_so}
 # Save unfiltered objects and meta.data
 # save and delete raw objects asap to free up memory
-# so_raw <- merge(sobjs[[1]], sobjs[-1], add.cell.ids = names(sobjs))
-# so_raw_df <- so_raw@meta.data %>%
-#   as_tibble(rownames = "cell_id")
-# save_objs(so_raw, ob_dir = dirs$so_dir)
-sobjs %>%
-  qsave(here(dirs$so_dir, "sobjs.qs"))
+so_raw <- merge(sobjs[[1]], sobjs[-1], add.cell.ids = names(sobjs))
 
-so_raw_df <- sobjs %>%
-  map_dfr(~ {
-    .x@meta.data %>%
-      as_tibble(rownames = "cell_id") %>%
-      mutate(cell_id = str_c(orig.ident, "_", cell_id))
-  })
+so_raw_df <- so_raw@meta.data %>%
+  as_tibble(rownames = "cell_id")
 
-so_raw_df %>%
-  write_tsv(here(dirs$so_dir, "so_raw.tsv.gz"))
+save_objs(so_raw, ob_dir = dirs$so_dir)
 
-rm(sobjs)
+rm(so_raw)
 ```
 
 ```{r "add enriched CHIKV counts", eval = create_so}
@@ -397,25 +366,68 @@ enr_counts <- so_enr_df %>%
     tot_sgRNA = CHIKV_sgRNA + enr_sgRNA,
     tot_neg   = CHIKV_neg   + enr_neg
   ) %>%
-  dplyr::select(cell_id, starts_with("tot")) %>%
-  column_to_rownames("cell_id")
+  dplyr::select(cell_id, orig.ident, starts_with("tot"))
 
-# Add enriched counts to object
+# Add enriched counts to objects
 # classify CHIKV-low/high cells
-so <- so %>%
-  AddMetaData(enr_counts) %>%
-  mutate_meta(
-    mutate,
-    chikv_grp = ifelse(tot_nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1])
-  )
+# enriched counts will be present in filtered object and so_enr_df
+sobjs <- sobjs %>%
+  imap(~ {
+    counts <- enr_counts %>%
+      filter(orig.ident == .y) %>%
+      mutate(cell_id = str_remove(cell_id, str_c(orig.ident, "_"))) %>%
+      column_to_rownames("cell_id")
+    
+    .x %>%
+      AddMetaData(counts) %>%
+      mutate_meta(
+        mutate,
+        chikv_grp = ifelse(tot_nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1]),
+        qc_class  = ifelse(
+          chikv_grp == chikv_grps[2] & qc_class %in% chikv_ignore_stats,
+          "pass",
+          qc_class
+        ),
+        qc_pass = qc_class == "pass"
+      )
+  })
 
 # Save enriched objects
-# Save data.frame with enriched counts
+# separately save data.frame with enriched counts
 # this includes cells not present in the original object
 save_objs(so_enr, ob_dir = dirs$so_dir)
 
 so_enr_df %>%
   write_tsv(here(dirs$so_dir, "so_enr.tsv.gz"))
+```
+
+```{r "cluster cells", eval = create_so}
+# Filter, normalize, and merge objects
+so <- sobjs %>%
+  map(~ {
+    .x %>%
+      subset(qc_pass) %>%
+      norm_sobj(
+        cc_scoring = TRUE,
+        rna_method = "LogNormalize",
+        scale_data = FALSE
+      )
+  })
+
+rm(sobjs)
+
+so <- merge(so[[1]], so[-1], add.cell.ids = names(so))
+
+# Cluster cells
+# find variable features with M3Drop
+so <- so %>%
+  run_m3drop(assay = "RNA", var_p = 0.001) %>%
+  ScaleData(assay = "RNA", vars.to.regress = "pct_mito") %>%
+  cluster_RNA(
+    assay      = "RNA",
+    resolution = rslns,
+    dims       = 1:50
+  )
 ```
 
 ```{r "clustify types", eval = create_so}
