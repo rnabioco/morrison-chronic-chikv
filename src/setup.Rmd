@@ -15,7 +15,6 @@ library(broom)
 library(here)
 library(cowplot)
 library(knitr)
-library(furrr)
 
 # Plotting
 library(ggtrace)
@@ -93,6 +92,9 @@ treats <- c(
 
 # CHIKV group labels
 chikv_grps <- c("CHIKV-low", "CHIKV-high")
+
+# Should adaptive QC cutoffs be used for filtering
+adaptive_qc <- is.null(params$gene_min) || is.null(params$gene_max)
 
 # QC stats to ignore for CHIKV+ cells
 chikv_ignore_stats <- c("low_features", "high_mito_counts")
@@ -208,7 +210,9 @@ sobjs <- sobjs %>%
         sample    = str_c(treatment, tm, rep, sep = "-")
       )
   })
+```
 
+```{r "adaptive qc", eval = adaptive_qc}
 # Identify low quality cells
 # use adaptive cutoffs from scuttle package
 # also set absolute max for pct_mito
@@ -1219,6 +1223,9 @@ umap_theme <- base_theme +
     axis.text    = element_blank(),
     aspect.ratio = 0.9
   )
+
+umap_theme_2 <- umap_theme +
+  theme(panel.border = element_rect(colour = ln_col, linewidth = ln_pt))
 
 box_theme <- base_theme +
   theme(
