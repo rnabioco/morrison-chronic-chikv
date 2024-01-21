@@ -15,6 +15,7 @@ library(broom)
 library(here)
 library(cowplot)
 library(knitr)
+library(xlsx)
 
 # Plotting
 library(ggtrace)
