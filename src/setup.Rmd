@@ -1165,7 +1165,7 @@ n_rep <- n_distinct(so$rep)
 tms <- c(params$tm, names(params$other_tms)) %>%
   unique()
 
-treats <- unique(so$treatment)
+treats <- params$treatment_levels
 
 sam_lvls <- so_raw_df %>%
   mutate(

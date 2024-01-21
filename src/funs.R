@@ -21,6 +21,55 @@ save_objs <- function(ob_in, prfx = NULL, ob_dir = dirs$so_dir) {
     write_tsv(here(ob_dir, str_c(prfx, ".tsv.gz")))
 }
 
+#' Write xlsx file
+#' 
+#' @param df_in data.frame
+#' @param file_path path to save file
+#' @param tab_var Variable(s) to use for splitting data.frame into tabs
+#' @param info String containing information to include in an 'info' tab
+#' @param overwrite Overwrite existing file
+#' @export
+write_xlsx <- function(df_in, file_path, tab_var = NULL, info = NULL) {
+  
+  if (file.exists(file_path)) {
+    warning(file_path, " exists, file was not saved")
+    
+    return(invisible())
+  }
+  
+  if (!is.null(tab_var)) {
+    sheets <- df_in %>%
+      rowwise() %>%
+      mutate(sheet_name = str_c(c(!!!syms(tab_var)), collapse = "_")) %>%
+      ungroup() 
+    
+    sheets <- sheets %>%
+      split(.$sheet_name)
+    
+  } else {
+    sheets <- list(Sheet1 = df_in)
+  }
+  
+  if (!is.null(info)) {
+    info <- tibble(info = str_squish(info))
+    
+    sheets <- append(list(info = info), sheets)
+  }
+  
+  sheets %>%
+    map(dplyr::select, -any_of("sheet_name")) %>%
+    map(as.data.frame) %>%
+    iwalk(~ {
+      .x %>%
+        xlsx::write.xlsx2(
+          file      = file_path,
+          sheetName = .y,
+          row.names = FALSE,
+          append    = TRUE
+        )
+    })
+}
+
 #' Plot color palette
 #' 
 #' @param cols_in Character vector containing colors to plot
@@ -2506,8 +2555,10 @@ find_markers <- function(sobj_in, grp_column = NULL, exclude_grp = NULL,
 #' @param ident_1 Identity class to define markers for.
 #' @param idnet_2 Second identity class for comparison. If NULL use all other
 #' cells for comparison.
-#' @param grp_var Grouping variable for finding markers, e.g. 'rep'.
-#' @param p_max Maximum p-value for filtering marker genes.
+#' @param rep_var Variable containing replicate IDs to use for grouping cells,
+#' e.g. 'rep'
+#' @param group_var Variable to use for splitting cells when finding markers,
+#' FindConservedMarkers() will be run separately for each variable in group_var.
 #' @param fc_min Minimum absolute log2 fold change, this overrides the
 #' fc_range argument.
 #' @param fc_range Vector of length 2 containing minimum and maximum log2 fold
@@ -2524,9 +2575,10 @@ find_markers <- function(sobj_in, grp_column = NULL, exclude_grp = NULL,
 #' @return tibble containing marker genes.
 #' @export
 find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
-                                   grp_var, p_max = 0.05, fc_min = 0.25,
-                                   fc_range = c(-Inf, Inf), n_reps = NULL,
-                                   filter_sig = FALSE, filter_regex = NULL,
+                                   rep_var, group_var = NULL, p_max = 0.05,
+                                   fc_min = 0.25, fc_range = c(-Inf, Inf),
+                                   n_reps = NULL, filter_sig = FALSE,
+                                   filter_regex = NULL,
                                    file_path = NULL, overwrite = FALSE) {
   
   if (is.null(ident_1) && !is.null(ident_2)) {
@@ -2553,7 +2605,7 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
   
   # Set FC filtering parameters
   # only pass filtering parameters if returning a filtered table
-  tot_n_reps <- n_distinct(sobj_in[[grp_var, drop = TRUE]])
+  tot_n_reps <- n_distinct(sobj_in[[rep_var, drop = TRUE]])
   n_reps     <- n_reps %||% tot_n_reps
   only_pos   <- FALSE
   fc_lim     <- 0
@@ -2571,92 +2623,110 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
     }
   }
   
-  # Find markers
-  res <- ident_1 %>%
-    map_dfr(~ {
-      mks <- sobj_in %>%
-        FindConservedMarkers(
-          ident.1         = .x,
-          ident.2         = ident_2,
-          grouping.var    = grp_var,
-          logfc.threshold = fc_lim,
-          only.pos        = only_pos
-        ) %>%
-        rownames_to_column("gene")
+  # Find conserved markers
+  .find_conserved_markers <- function(so_in, ident_1) {
+    
+    res <- so_in %>%
+      FindConservedMarkers(
+        ident.1         = ident_1,
+        ident.2         = ident_2,
+        grouping.var    = rep_var,
+        logfc.threshold = fc_lim,
+        only.pos        = only_pos
+      ) %>%
+      rownames_to_column("gene")
+    
+    # Filter and format output table
+    if (nrow(res) > 0) {
+      fc <- syms(grep("_avg_log2FC$", colnames(res), value = TRUE))
+      p  <- syms(grep("_p_val_adj$", colnames(mac_degs), value = TRUE))
       
-      # Filter and format output table
-      if (nrow(mks) > 0) {
-        fc <- syms(grep("_avg_log2FC$", colnames(mks), value = TRUE))
-        p  <- syms(grep("_p_val_adj$", colnames(mac_degs), value = TRUE))
-        
-        mks <- mks %>%
-          mutate(
-            ident_1 = .x,
-            ident_2 = ident_2,
-            .before = gene
-          ) %>%
-          rowwise() %>%
-          mutate(
-            avg_fc  = mean(c(!!!fc)),  # this may differ from the up/down classification
-            
-            min_abs_fc = min(abs(c(!!!fc))),  # based on abs fc, directionality still reported
-            min_abs_fc = c(!!!fc)[abs(c(!!!fc)) == min_abs_fc],
-            
-            max_abs_fc = max(abs(c(!!!fc))),
-            max_abs_fc = c(!!!fc)[abs(c(!!!fc)) == max_abs_fc],
-            
-            all_same_direction = all(c(!!!fc) > 0) || all(c(!!!fc) < 0),
-            direction          = ifelse(sum(c(!!!fc) > 0) >= n_reps, "up", "down"),
-            
-            n_same_direction = ifelse(
-              direction == "up",
-              sum(c(!!!fc) > 0),
-              sum(c(!!!fc) < 0)
-            ),
-            
-            min_p = min(c(!!!p)),
-            max_p = max(c(!!!p))
-          ) %>%
-          ungroup()
-        
-        # Identify significant genes
-        # use fc_min if provided
-        mks <- rowwise(mks)
-        
-        if (!is.null(fc_min)) {
-          mks <- mks %>%
-            mutate(
-              significant = ifelse(
-                direction == "up",
-                sum(c(!!!fc) > fc_min  & c(!!!p) < p_max) >= n_reps,
-                sum(c(!!!fc) < -fc_min & c(!!!p) < p_max) >= n_reps
-              )
-            )
+      res <- res %>%
+        mutate(
+          ident_1 = ident_1,
+          ident_2 = ident_2,
+          .before = gene
+        ) %>%
+        rowwise() %>%
+        mutate(
+          avg_fc  = mean(c(!!!fc)),  # this may differ from the up/down classification
           
-        } else {
-          mks <- mks %>%
-            mutate(
-              significant = sum(
-                c(!!!fc) > fc_range[1] &
-                  c(!!!fc) < fc_range[2] &
-                  c(!!!p) < p_max
-              ) >= n_reps
+          min_abs_fc = min(abs(c(!!!fc))),  # based on abs fc, directionality still reported
+          min_abs_fc = c(!!!fc)[abs(c(!!!fc)) == min_abs_fc],
+          
+          max_abs_fc = max(abs(c(!!!fc))),
+          max_abs_fc = c(!!!fc)[abs(c(!!!fc)) == max_abs_fc],
+          
+          all_same_direction = all(c(!!!fc) > 0) || all(c(!!!fc) < 0),
+          direction          = ifelse(sum(c(!!!fc) > 0) >= n_reps, "up", "down"),
+          
+          n_same_direction = ifelse(
+            direction == "up",
+            sum(c(!!!fc) > 0),
+            sum(c(!!!fc) < 0)
+          ),
+          
+          min_p = min(c(!!!p)),
+          max_p = max(c(!!!p))
+        ) %>%
+        ungroup()
+      
+      # Identify significant genes
+      # use fc_min if provided
+      res <- rowwise(res)
+      
+      if (!is.null(fc_min)) {
+        res <- res %>%
+          mutate(
+            significant = ifelse(
+              direction == "up",
+              sum(c(!!!fc) > fc_min  & c(!!!p) < p_max) >= n_reps,
+              sum(c(!!!fc) < -fc_min & c(!!!p) < p_max) >= n_reps
             )
-        }
+          )
         
-        mks <- mks %>%
-          ungroup() %>%
-          arrange(desc(avg_fc))
-        
-        # Filter genes based on significance cutoffs
-        if (filter_sig) {
-          mks <- mks %>%
-            filter(significant)
-        }
+      } else {
+        res <- res %>%
+          mutate(
+            significant = sum(
+              c(!!!fc) > fc_range[1] &
+                c(!!!fc) < fc_range[2] &
+                c(!!!p) < p_max
+            ) >= n_reps
+          )
       }
       
-      mks
-    })
+      res <- res %>%
+        ungroup() %>%
+        arrange(desc(avg_fc))
+      
+      # Filter genes based on significance cutoffs
+      if (filter_sig) {
+        res <- res %>%
+          filter(significant)
+      }
+    }
+    
+    res
+  }
+  
+  if (!is.null(group_var)) {
+    grps <- unique(sobj_in[[group_var, drop = TRUE]])
+    
+    res <- grps %>%
+      map_dfr(~ {
+        dat <- sobj_in %>%
+          subset(!!sym(group_var) == .x)
+        
+        ident_1 %>%
+          map_dfr(~ .find_conserved_markers(dat, .x)) %>%
+          mutate(!!sym(group_var) := .x, .before = ident_1)
+      })
+    
+  } else {
+    res <- ident_1 %>%
+      map_dfr(~ .find_conserved_markers(sobj_in, .x))
+  }
   
   # Remove genes that match filt_regex
   if (!is.null(filter_regex)) {

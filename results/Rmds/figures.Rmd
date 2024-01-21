@@ -42,7 +42,8 @@ params:
     - "C1"
     - "C2"
     - "C3"
-editor_options: 
+  treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
+editor_options:
   chunk_output_type: console
 ---
 
@@ -144,65 +145,51 @@ so_mac <- so_mac %>%
   )
 ```
 
-```{r "mac DEGs"}
+```{r "mac chikv markers"}
 # all macroaphges mock vs CHIKV
 # for GSEA include all genes regardless of significance
+# significant genes have adjusted p-value < 0.05 and
+# abs log2 fold change > 0.25 for 2/3 reps
 Idents(so_mac) <- so_mac$treatment
 
-all_mac_degs <- so_mac %>%
+mac_degs <- so_mac %>%
   find_conserved_markers(
     ident_1    = treats[2],
     ident_2    = treats[1],
-    grp_var    = "rep",
+    rep_var    = "rep",
     p_max      = 0.05,
     fc_min     = 0.25,
     n_reps     = 2,
     filter_sig = FALSE,
-    file_path  = here(dirs$table_dir, "mac_all_chikv_degs.tsv")
+    file_path  = here(dirs$table_dir, "mac_chikv_markers.tsv")
+  )
+
+# Save significant markers as xlsx file
+info <- "
+  Markers were identified for mock- vs CHIKV-infected mice for all macrophages.
+  Genes were filtered for those where the change in expression was in the same
+  direction (up or down) for all replicates,
+  an adjusted p value < 0.05 and
+  an absolute log2 fold change > 0.25 for at least 2/3 replicates
+"
+
+mac_degs_sig <- mac_degs %>%
+  filter(significant & all_same_direction)
+
+mac_degs_sig %>%
+  write_xlsx(
+    info      = info,
+    tab_var   = c("ident_1", "direction"),
+    file_path = here(dirs$table_dir, "mac_chikv_markers.xlsx")
   )
 ```
 
-```{r "mac subset DEGs"}
-# Identify mock vs CHIKV DEGs for macroaphges subsets
-# include genes with adjusted p-value < 0.05 and abs log2 fold change > 0.25 for
-# 2/3 reps
-chikv_deg_file <- here(dirs$table_dir, "mac_subset_chikv_degs.tsv")
-
-if (!file.exists(chikv_deg_file)) {
-  typs <- unique(so_mac$mac_type)
-  
-  mac_degs <- typs %>%
-    map_dfr(~ {
-      dat <- so_mac %>%
-        subset(mac_type == .x)
-      
-      Idents(dat) <- dat$treatment
-      
-      dat %>%
-        find_conserved_markers(
-          ident_1    = treats[2],
-          ident_2    = treats[1],
-          grp_var    = "rep",
-          p_max      = 0.05,
-          fc_min     = 0.25,
-          n_reps     = 2,
-          filter_sig = FALSE
-        ) %>%
-        mutate(cell_type = .x)
-    })
-}
-
-mac_degs <- chikv_deg_file %>%
-  read_tsv() %>%
-  mutate(direction = fct_relevel(direction, c("up", "down")))
-```
-
-```{r "mac GSEA"}
+```{r "mac gsea"}
 # all macrophages mock vs CHIKV-infected DEGs
 # GSEA analysis using DOSE database
 # need to fetch entrez gene IDs for human homologs
 # exclude genes that have multiple human or mouse IDs
-gsea_degs <- all_mac_degs %>%
+gsea_degs <- mac_degs %>%
   inner_join(hlogs, by = c(gene = "gene_mm")) %>%
   distinct(gene, gene_hs, entrez_hs, min_fc) %>%
   
@@ -210,7 +197,6 @@ gsea_degs <- all_mac_degs %>%
     -min_fc,
     ~ !duplicated(.x) & !duplicated(.x, fromLast = TRUE)
   )) %>%
-
   arrange(desc(min_fc))
 
 gsea_file <- here(dirs$table_dir, "mac_chikv_gsea.qs")
@@ -226,25 +212,61 @@ if (!file.exists(gsea_file)) {
   
   chikv_gsea %>%
     qsave(gsea_file)
-  
-} else {
-  chikv_gsea <- qread(gsea_file)
 }
+
+chikv_gsea <- qread(gsea_file)
 ```
 
-```{r "t cell type markers"}
-file_path <- here(dirs$table_dir, "t_type_markers.tsv")
+```{r "mac type chikv markers"}
+# Identify mock vs CHIKV DEGs for macroaphges subsets
+# significant genes have adjusted p-value < 0.05 and
+# abs log2 fold change > 0.25 for 2/3 reps
+Idents(so_mac) <- so_mac$treatment
 
+mac_type_degs <- so_mac %>%
+  find_conserved_markers(
+    ident_1    = treats[2],
+    ident_2    = treats[1],
+    rep_var    = "rep",
+    group_var  = "mac_type",
+    p_max      = 0.05,
+    fc_min     = 0.25,
+    n_reps     = 2,
+    filter_sig = FALSE,
+    file_path  = here(dirs$table_dir, "mac_type_chikv_markers.tsv")
+  )
+
+# Save significant markers as xlsx file
+info <- "
+  Markers were identified for mock- vs CHIKV-infected mice for each macrophage subset.
+  Genes were filtered for those where the change in expression was in the same
+  direction (up or down) for all replicates,
+  an adjusted p value < 0.05 and
+  an absolute log2 fold change > 0.25 for at least 2/3 replicates
+"
+
+mac_type_degs_sig <- mac_type_degs %>%
+  filter(significant & all_same_direction)
+
+mac_type_degs_sig %>%
+  write_xlsx(
+    info      = info,
+    tab_var   = c("mac_type", "direction"),
+    file_path = here(dirs$table_dir, "mac_type_chikv_markers.xlsx")
+  )
+```
+
+```{r "t type markers"}
 # T cell subset markers
-# DO NOT FILTER FOR MOCK CELLS
+# using all T cells identify markers for each subset
 Idents(so_t) <- so_t$t_type
 
 t_typs <- unique(so_t$t_type)
 
-t_type_degs <- so_mac %>%
+t_type_degs <- so_t %>%
   find_conserved_markers(
     ident_1    = t_typs,
-    grp_var    = "rep",
+    rep_var    = "rep",
     p_max      = 0.05,
     fc_min     = 0.25,
     n_reps     = 2,
@@ -252,95 +274,101 @@ t_type_degs <- so_mac %>%
     file_path  = here(dirs$table_dir, "t_type_markers.tsv")
   )
 
-# GO terms
-# term size > 10, < 400
-expr_gns <- so_t@assays$RNA@counts %>%
-  rowSums() %>%
-  sort(decreasing = TRUE) %>%
-  head(5000)
+# Save significant markers as xlsx file
+info <- "
+  Markers were identified for each T cell subset.
+  Genes were included in they were upregulated for all replicates,
+  and have an adjusted p value < 0.05 and
+  log2 fold change > 0.25 for at least 2/3 replicates
+"
 
-t_type_go <- t_type_degs %>%
-  split(.$cluster) %>%
-  map(pull, gene) %>%
-  gost(
-    organism     = "mmusculus",
-    custom_bg    = names(expr_gns),
-    domain_scope = "custom",
-    evcodes      = TRUE
-  ) %>%
-  .$result %>%
-  dplyr::select(-c(evidence_codes, parents)) %>%
-  arrange(query, p_value)
+t_type_degs_sig <- t_type_degs %>%
+  filter(significant & all_same_direction & direction == "up")
 
-t_type_go %>%
-  write_tsv(here(dirs$table_dir, "t_type_go.tsv"))
-
-
-
-# # Load GO terms
-# t_type_go <- read_tsv(here(dirs$table_dir, "t_type_go.tsv"))
-# 
-# t_type_go <- t_type_go %>%
-#   separate_rows(intersection, sep = ",") %>%
-#   nest(intersection = intersection) %>%
-#   filter(term_size > 10, term_size < 500, intersection_size > 4)
-# if (!file.exists(file_path)) {
-#   Idents(so_t) <- so_t$t_type
-#   
-#   t_typs <- unique(so_t$t_type)
-#   
-#   t_type_markers <- t_typs %>%
-#     map_dfr(~ {
-#       so_t %>%
-#         FindConservedMarkers(
-#           ident.1 = .x,
-#           grouping.var = "rep"
-#         ) %>%
-#         rownames_to_column("gene") %>%
-#         mutate(cluster = .x)
-#     }, .options = furrr_options(seed = TRUE))
-#   
-#   # Filter marker genes
-#   # fold change > 1.25, pct > 0.3
-#   reps <- unique(so_t$rep)
-#   
-#   stat_clmns <- list(
-#     fc   = str_c(reps, "_avg_log2FC"),
-#     pct1 = str_c(reps, "_pct.1"),
-#     pct2 = str_c(reps, "_pct.2")
-#   )
-#   
-#   t_type_markers <- t_type_markers %>%
-#     filter(
-#       max_pval < 0.05,
-#       if_all(all_of(stat_clmns$fc),   ~ .x > log2(1.25)),
-#       if_all(all_of(stat_clmns$pct1), ~ .x > 0.25),
-#       if_all(all_of(stat_clmns$pct2), ~ .x < 0.6)
-#     ) %>%
-#     arrange(cluster, max_pval)
+t_type_degs_sig %>%
+  write_xlsx(
+    info      = info,
+    tab_var   = "ident_1",
+    file_path = here(dirs$table_dir, "t_type_markers.xlsx")
+  )
 ```
 
-```{r "t all DEGs"}
+```{r "t type go"}
+# GO terms
+# terms > 10 and < 500 genes
+go_file <- here(dirs$table_dir, "t_type_go.tsv")
+
+if (!file.exists(go_file)) {
+  expr_gns <- so_t@assays$RNA@counts %>%
+    rowSums() %>%
+    sort(decreasing = TRUE) %>%
+    head(5000)
+  
+  t_type_go <- t_type_degs_sig %>%
+    split(.$ident_1) %>%
+    map(pull, gene) %>%
+    gost(
+      organism     = "mmusculus",
+      custom_bg    = names(expr_gns),
+      domain_scope = "custom",
+      evcodes      = TRUE
+    ) %>%
+    .$result %>%
+    dplyr::select(-c(evidence_codes, parents)) %>%
+    filter(p_value < 0.05, term_size > 10, term_size < 500) %>%
+    arrange(query, p_value)
+  
+  t_type_go %>%
+    write_tsv(go_file)
+}
+
+t_type_go <- read_tsv(go_file)
+```
+
+```{r "t chikv markers"}
 # CHIKV-infected DEGs for all T cells grouped together
 Idents(so_t) <- so_t$treatment
 
-t_all_degs_1 <- so_mac %>%
+t_degs_1 <- so_mac %>%
   find_conserved_markers(
     ident_1    = treats[2],
     ident_2    = treats[1],
-    grp_var    = "rep",
+    rep_var    = "rep",
     p_max      = 0.05,
     fc_min     = 0.25,
     n_reps     = 2,
     filter_sig = FALSE,
-    file_path  = here(dirs$table_dir, "t_all_chikv_degs-1.tsv")
+    file_path  = here(dirs$table_dir, "t_chikv_markers-1.tsv")
   )
 
+t_degs_sig_1 <- t_degs_1 %>%
+  filter(significant & all_same_direction)
+
+# # Save significant markers as xlsx file
+# info <- "
+#   Markers were identified for each T cell subset.
+#   Genes were included in they were upregulated for all replicates,
+#   and have an adjusted p value < 0.05 and
+#   log2 fold change > 0.25 for at least 2/3 replicates
+# "
+# 
+# t_type_degs_sig <- t_type_degs %>%
+#   filter(significant & all_same_direction & direction == "up")
+# 
+# t_type_degs_sig %>%
+#   write_xlsx(
+#     info      = info,
+#     tab_var   = "ident_1",
+#     file_path = here(dirs$table_dir, "t_type_markers.xlsx")
+#   )
+```
+
+```{r "t CD4/8 chikv markers"}
 # CHIKV-infected DEGs for CD4/8 T cells grouped together
 # do not use replicates since we have so few T cells
 Idents(so_t) <- so_t$treatment
 
-chikv_deg_file <- here(dirs$table_dir, "t_all_chikv_degs-2.tsv")
+chikv_deg_file <- here(dirs$table_dir, "t_chikv_markers-2.tsv")
 
 so_t <- so_t %>%
   mutate_meta(
@@ -350,53 +378,55 @@ so_t <- so_t %>%
   )
 
 if (!file.exists(chikv_deg_file)) {
-  degs <- c("CD4", "CD8") %>%
+  t_degs_2 <- c("CD4", "CD8") %>%
     map_dfr(~ {
       so_t %>%
         subset(cd4_8 == .x) %>%
         FindMarkers(
-          ident.1         = "CHIKV",
-          ident.2         = "mock",
+          ident.1         = treats[2],
+          ident.2         = treats[1],
           logfc.threshold = 0.25
         ) %>%
         as_tibble(rownames = "gene") %>%
         mutate(cd4_8 = .x)
     })
   
-  degs %>%
+  t_degs_2 %>%
+    mutate(direction = ifelse(avg_log2FC > 0, "up", "down")) %>%
     write_tsv(chikv_deg_file)
 }
 
-t_all_degs_2 <- read_tsv(chikv_deg_file)
+t_degs_2 <- read_tsv(chikv_deg_file)
 ```
 
-```{r "t subset DEGs"}
+```{r "t type chikv markers"}
 # CHIKV-infected DEGs for each subset
 Idents(so_t) <- so_t$treatment
 
-chikv_deg_file <- here(dirs$table_dir, "t_type_chikv_degs.tsv")
+chikv_deg_file <- here(dirs$table_dir, "t_type_chikv_markers.tsv")
 
 if (!file.exists(chikv_deg_file)) {
   typs <- unique(so_t$t_type)
   
-  degs <- typs %>%
+  t_degs_3 <- typs %>%
     map_dfr(~ {
       so_t %>%
         subset(t_type == .x) %>%
         FindMarkers(
-          ident.1         = "CHIKV",
-          ident.2         = "mock",
+          ident.1         = treats[2],
+          ident.2         = treats[1],
           logfc.threshold = 0.25
         ) %>%
         as_tibble(rownames = "gene") %>%
-        mutate(t_type = .x)
+        mutate(t_type = .x) %>%
+        arrange(desc(avg_log2FC))
     })
   
-  degs %>%
+  t_degs_3 %>%
     write_tsv(chikv_deg_file)
 }
 
-t_typ_degs <- read_tsv(chikv_deg_file)
+t_degs_3 <- read_tsv(chikv_deg_file)
 ```
 
 UMAP projections show sample groups (left), cell type annotations (middle),
@@ -1332,7 +1362,7 @@ gsea_gns <- hlogs %>%
 
 # Genes to plot
 # plot top 60 genes
-top_gsea_gns <- all_mac_degs %>%
+top_gsea_gns <- mac_degs %>%
   dplyr::filter(
     max_pval < 0.05,
     min_fc   > 0.2,
@@ -1453,7 +1483,7 @@ names(u_clrs) <- treats
 # Order GO genes based on fold change
 goi_lst <- goi_lst %>%
   map(~ {
-    gns <- all_mac_degs %>%
+    gns <- mac_degs %>%
       filter(gene %in% .x) %>%
       arrange(desc(min_fc)) %>%
       pull(gene)
@@ -1541,7 +1571,7 @@ A single point (not connected by a black line) shows the number of unique genes
 for the subset.
 
 ```{r "DEG upset plot", fig.width = 10, fig.height = 4}
-upset_dat <- mac_degs %>%
+upset_dat <- mac_type_degs %>%
   split(.$direction) %>%
   imap(~ {
     .x %>%
@@ -1582,8 +1612,8 @@ degs_upset
 # Plot top 60 DEGs
 n_gns <- 60
 
-heats <- mac_degs %>%
-  split(.$cell_type) %>%
+heats <- mac_type_degs_sig %>%
+  split(.$mac_type) %>%
   imap(~ {
     .x %>%
       split(.$direction) %>%
