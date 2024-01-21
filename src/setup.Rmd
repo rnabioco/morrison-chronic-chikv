@@ -873,7 +873,9 @@ so_t <- so_t %>%
 so_t <- so_t %>%
   mutate_meta(
     mutate,
-    t_type = replace_na(t_type, "unassigned")
+    t_type = replace_na(t_type, "unassigned"),
+    cd4_8  = str_extract(t_type, "^CD[48]"),
+    cd4_8  = replace_na(cd4_8, "other")
   )
 ```
 
@@ -1367,6 +1369,15 @@ names(mac_typ_cols) <- mac_typ_labs[names(mac_typ_cols)]
 mac_typ_cols_2 <- mac_typ_cols
 mac_typ_cols_2["unassigned"] <- "grey75"
 
+# T subset colors
+t_typs <- unique(so_t$t_type)
+
+t_clrs <- set_names(
+  palette_OkabeIto[seq_along(t_typs)],
+  t_typs
+)
+
+t_clrs["unassigned"] <- "grey75"
 ```
 
 

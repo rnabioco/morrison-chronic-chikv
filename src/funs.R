@@ -212,6 +212,28 @@ get_cell_types <- function(so_in, type_clmn, sample_clmn, n_cells = 3) {
   res
 }
 
+#' Fetch genes for GO terms
+fetch_go_genes <- function(terms, mart) {
+  att  <- c("ensembl_gene_id", "external_gene_name")
+  names(terms) <- names(terms) %||% rep("go_parent_name", length(terms))
+  names(terms)[names(terms) == ""] <- "go_parent_name"
+  
+  res <- terms %>%
+    imap(~ {
+      getBM(
+        attributes = att,
+        filters    = .y,
+        values     = .x,
+        mart       = mart
+      ) %>%
+        pull(external_gene_name)
+    }) %>%
+    purrr::reduce(c) %>%
+    unique()
+  
+  res
+}
+
 
 # Processing helpers ----
 
@@ -2639,7 +2661,7 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
     # Filter and format output table
     if (nrow(res) > 0) {
       fc <- syms(grep("_avg_log2FC$", colnames(res), value = TRUE))
-      p  <- syms(grep("_p_val_adj$", colnames(mac_degs), value = TRUE))
+      p  <- syms(grep("_p_val_adj$", colnames(res), value = TRUE))
       
       res <- res %>%
         mutate(
