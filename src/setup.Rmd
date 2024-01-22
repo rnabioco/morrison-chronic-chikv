@@ -36,6 +36,7 @@ library(M3Drop)
 library(presto)
 library(gprofiler2)
 library(harmony)
+library(metap)
 library(qs)
 
 source(here(params$template_dir, "funs.R"))
@@ -208,7 +209,9 @@ sobjs <- sobjs %>%
         treatment = treats[treatment],
         rep       = str_extract(orig.ident, "[0-9]+$"),
         tm        = params$tm,
-        sample    = str_c(treatment, tm, rep, sep = "-")
+        sample    = str_c(treatment, tm, rep, sep = "-"),
+        
+        qc_pass = qc_class == "pass"
       )
   })
 ```
