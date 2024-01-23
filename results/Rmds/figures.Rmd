@@ -15,10 +15,10 @@ params:
   enr_dir:      "results/2022-02-03"      # Directory for CHIKV-enriched data
   template_dir: "src"                     # Directory for Rmd templates
   ref_dir:      "ref"
-  table_dir:    "results/tables/2024-01-03"          # Directory to write tables
+  table_dir:    "results/tables/2024-01-22_4"          # Directory to write tables
   geo_dir:      "results/geo"             # Directory for GEO submission
   overwrite:    false                     # Should tables be overwritten if they already exist?
-  so_dir:       "~/Dropbox/Ryan/Projects/morrison-chronic-chikv/results/sobjs/2024-01-03" # Directory for Seurat objects
+  so_dir:       "~/Dropbox/Ryan/Projects/morrison-chronic-chikv/results/sobjs/2024-01-22_4" # Directory for Seurat objects
   metrics:     "count_metrics.csv"       # Cell Ranger metrics
   gene_min:    250                       # Min number of detected genes per cell
   gene_max:    5500                      # Max number of detected genes per cell
@@ -44,7 +44,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options:
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 <br>
@@ -57,6 +57,8 @@ knitr::opts_chunk$set(
   echo    = FALSE,
   dpi     = 300
 )
+
+options(future.globals.maxSize = 1 * 1024^3)
 
 knitr::knit(here::here("src/setup.Rmd"), output = "")
 ```
@@ -153,15 +155,6 @@ so_mac <- so_mac %>%
       chikv_grps[1]
     ),
     chikv_clst_grp = fct_relevel(chikv_clst_grp, chikv_grps)
-  )
-
-# Adjust T cell subset labels
-so_t <- so_t %>%
-  mutate_meta(
-    mutate,
-    t_type = replace_na(t_type, "unassigned"),
-    cd4_8  = str_extract(t_type, "^CD[48]"),
-    cd4_8  = replace_na(cd4_8, "other")
   )
 ```
 
@@ -629,7 +622,7 @@ mscl_dat %>%
 
 <br>
 
-# **Macrophages**
+# Macrophages
 
 <br>
 
@@ -1317,13 +1310,12 @@ so_mac@meta.data %>%
 
 ## Differential expression {.tabset .tabset-pills}
 
-Top 50 upregulated genes associated with inflammatory disease are shown below for
+Top 50 upregulated genes associated with arthritis are shown below for
 mock- vs CHIKV-infected macrophages.
 
 ```{r, fig.width = 11, fig.height = 8}
 # GSEA genes associated with bone disease
-# terms_re <- c("connective", "musculoskeletal", "arthritis", "bone") %>%
-#   str_c(collapse = "|")
+n_gns    <- 50
 terms_re <- "arthritis"
 
 gsea_gns <- chikv_gsea@result %>%
@@ -1347,7 +1339,7 @@ top_gsea_gns <- mac_degs_sig %>%
   dplyr::filter(gene %in% gsea_gns) %>%
   arrange(desc(min_abs_fc)) %>%
   pull(gene) %>%
-  head(50) %>%
+  head(n_gns) %>%
   unique()
 
 # Format data
@@ -1394,7 +1386,7 @@ ex_heat <- dat %>%
 ```{r, fig.width = 10, fig.height = 6.5}
 # gns <- c("Nlrp3", "Tlr2", "Mdm2", "Plau", "Slamf7")
 # gns <- head(top_gsea_gns, 3)
-gns <- c("Nlrp3", "Il1b", "Tnf")
+gns <- c("Nlrp3", "Il1b", "Tlr2")
 
 if (!all(gns %in% gsea_gns)) stop("Not all genes are in GSEA terms")
 
@@ -1617,7 +1609,7 @@ plot_grid(
 
 <br>
 
-Top genes upregulated in CHIKV-infected mice are shown below for each
+Top 60 upregulated genes in CHIKV-infected mice are shown below for each
 macrophage subset.
 
 Upset plots (top) show the overlap between differentially expressed genes
@@ -1878,7 +1870,7 @@ mod_plts %>%
   })
 ```
 
-# **T cells**
+# T cells
 
 <br>
 
@@ -2046,6 +2038,70 @@ t_plts %>%
   )
 ```
 
+<br>
+
+<br>
+
+Ifng expression is shown below for each T cell subset.
+
+```{r "Ifng expression", fig.width = 7, fig.height = 6, out.width = "65%"}
+dat <- so_t %>%
+  mutate_meta(
+    mutate,
+    treatment = fct_relevel(treatment, treats)
+  )
+
+u <- dat %>%
+  plot_scatter(
+    "Ifng",
+    "hUMAP_1", "hUMAP_2",
+    group_col = "treatment",
+    size = 1,
+    outline = TRUE,
+    plot_colors = c("white", "#035B8F")
+  ) +
+  guides(fill = guide_colorbar(
+    ticks = FALSE,
+    barwidth  = unit(7, "pt"),
+    barheight = unit(100, "pt")
+  )) +
+  umap_theme +
+  theme(
+    plot.margin  = margin(0, 15, 0, 15),
+    panel.border = element_rect(colour = ln_col, linewidth = ln_pt)
+  )
+
+bx <- dat %>%
+  plot_violin(
+    "Ifng",
+    cluster_col   = "t_type",
+    group_col     = "treatment",
+    method        = "boxplot",
+    plot_colors   = t_clrs,
+    outlier.size  = 0.5,
+    outlier.alpha = 1,
+    width         = 0.6,
+    n_label       = "legend",
+    key_glyph     = draw_key_point,
+    color         = "black",
+    alpha         = 1
+  ) +
+  theme(
+    plot.margin     = margin(0, 15, 0, 15),
+    legend.position = "none",
+    legend.title    = element_blank(),
+    axis.text.x     = element_text(angle = 45, hjust = 1)
+  )
+
+plot_grid(
+  u, bx,
+  ncol  = 1,
+  align = "v",
+  axis  = "rl",
+  rel_heights = c(1, 0.5)
+)
+```
+
 ---
 
 <br>
@@ -2054,18 +2110,18 @@ t_plts %>%
 
 ## Differential expression
 
-Genes upregulated in CHIKV vs mock-infected mice are shown below, all T cells
+Top 80 genes upregulated in CHIKV vs mock-infected mice are shown below, all T cells
 were grouped together.
 
 ```{r "all upreg T cells", fig.width = 12, fig.height = 4}
 # Select genes to plot
+n_gns <- 80
+
 gns <- t_degs_sig_1 %>%
   filter(direction == "up") %>%
   arrange(desc(min_abs_fc))
 
-gns <- gns %>%
-  pull(gene) %>%
-  head(80)
+gns <- head(gns$gene, n_gns)
 
 # Format data for plotting
 plt_dat <- so_t %>%
@@ -2095,17 +2151,17 @@ t_heats <- plt_dat %>%
   coord_flip() +
   base_theme +
   theme(
-    aspect.ratio = asp_rat,
-    legend.position = "bottom",
+    aspect.ratio         = asp_rat,
+    legend.position      = "bottom",
     legend.justification = "center",
-    legend.key.width = unit(30, "pt"),
-    legend.key.height = unit(7, "pt"),
-    plot.title = element_text(hjust = 0.5),
-    strip.clip = "off",
-    strip.placement = "outside",
-    axis.title = element_blank(),
-    axis.text.x  = element_text(angle = 90, hjust = 1, vjust = 0.5),
-    legend.title = element_blank()
+    legend.key.width     = unit(30, "pt"),
+    legend.key.height    = unit(7, "pt"),
+    plot.title           = element_text(hjust = 0.5),
+    strip.clip           = "off",
+    strip.placement      = "outside",
+    axis.title           = element_blank(),
+    axis.text.x          = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    legend.title         = element_blank()
   )
 
 t_heats
@@ -2118,19 +2174,17 @@ t_heats
 Genes upregulated in T cells from CHIKV vs mock-infected mice are shown below.
 All CD4+ or CD8+ T cells were grouped together.
 
-```{r "upreg T cells", fig.width = 10, fig.height = 5}
+```{r "upreg T cells", fig.width = 12, fig.height = 10, out.width = "70%"}
 # Select genes to plot
-# filter(
-#   avg_log2FC > 0.25, p_val_adj < 0.05,
-#   pct.1 > 0.3, pct.2 < 0.8,
-#   !grepl("^mt-", gene)
-# )
+n_gns <- 60
+
 gns <- t_degs_sig_2 %>%
   arrange(desc(avg_log2FC))
 
 gns_key <- gns %>%
   split(.$cd4_8) %>%
-  map(pull, gene)
+  map(pull, gene) %>%
+  head(n_gns)
 
 gns <- unique(gns$gene)
 
@@ -2159,7 +2213,7 @@ plt_dat <- so_t %>%
 t_heats <- plt_dat %>%
   split(.$cd4_8) %>%
   imap(~ {
-    asp_rat <- n_distinct(.x$name) / n_distinct(.x$rep)
+    asp_rat <- min(10, n_distinct(.x$name) / n_distinct(.x$rep))
     
     .x %>%
       ggplot(aes(rep, name, fill = value)) +
@@ -2171,16 +2225,18 @@ t_heats <- plt_dat %>%
       base_theme +
       theme(
         aspect.ratio = asp_rat,
-        plot.title = element_text(hjust = 0.5),
-        strip.clip = "off",
-        axis.title = element_blank(),
+        plot.title   = element_text(hjust = 0.5),
+        strip.clip   = "off",
+        axis.title   = element_blank(),
         legend.title = element_blank()
       )
   })
 
 plot_grid(
   plotlist = t_heats,
-  nrow = 1
+  nrow     = 1,
+  align    = "vh",
+  axis     = "trbl"
 )
 ```
 
@@ -2402,69 +2458,16 @@ plot_grid(
 )
 ```
 
-<br>
+---
 
 <br>
 
-Ifng expression is shown below for each T cell subset.
+<br>
 
-```{r "Ifng expression", fig.width = 7, fig.height = 6, out.width = "65%"}
-dat <- so_t %>%
-  mutate_meta(
-    mutate,
-    treatment = fct_relevel(treatment, treats)
-  )
+# Session info
 
-u <- dat %>%
-  plot_scatter(
-    "Ifng",
-    "hUMAP_1", "hUMAP_2",
-    group_col = "treatment",
-    size = 1,
-    outline = TRUE,
-    plot_colors = c("white", "#035B8F")
-  ) +
-  guides(fill = guide_colorbar(
-    ticks = FALSE,
-    barwidth  = unit(7, "pt"),
-    barheight = unit(100, "pt")
-  )) +
-  umap_theme +
-  theme(
-    plot.margin  = margin(0, 15, 0, 15),
-    panel.border = element_rect(colour = ln_col, linewidth = ln_pt)
-  )
-
-bx <- dat %>%
-  plot_violin(
-    "Ifng",
-    cluster_col   = "t_type",
-    group_col     = "treatment",
-    method        = "boxplot",
-    plot_colors   = t_clrs,
-    outlier.size  = 0.5,
-    outlier.alpha = 1,
-    width         = 0.6,
-    n_label       = "legend",
-    key_glyph     = draw_key_point,
-    color         = "black",
-    alpha         = 1
-  ) +
-  theme(
-    plot.margin     = margin(0, 15, 0, 15),
-    legend.position = "none",
-    legend.title    = element_blank(),
-    axis.text.x     = element_text(angle = 45, hjust = 1)
-  )
-
-plot_grid(
-  u, bx,
-  ncol  = 1,
-  align = "v",
-  axis  = "rl",
-  rel_heights = c(1, 0.5)
-)
+```{r}
+sessionInfo()
 ```
-
 
 

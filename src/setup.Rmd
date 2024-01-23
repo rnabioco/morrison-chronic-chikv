@@ -16,6 +16,7 @@ library(here)
 library(cowplot)
 library(knitr)
 library(xlsx)
+library(furrr)
 
 # Plotting
 library(ggtrace)
@@ -37,6 +38,7 @@ library(presto)
 library(gprofiler2)
 library(harmony)
 library(metap)
+library(edgeR)
 library(qs)
 
 source(here(params$template_dir, "funs.R"))
@@ -84,7 +86,7 @@ lec_cell_types <- "Endothelial cells"
 fib_cell_types <- c("Fibroblasts", "Stromal cells (DN)")
 
 # Treatment labels
-treats <- c(
+treat_key <- c(
   U  = "mock",
   M  = "mock",
   A  = "CHIKV",
@@ -206,7 +208,7 @@ sobjs <- sobjs %>%
       mutate_meta(
         mutate,
         treatment = str_extract(orig.ident, "^[A-Z]+"),
-        treatment = treats[treatment],
+        treatment = treat_key[treatment],
         rep       = str_extract(orig.ident, "[0-9]+$"),
         tm        = params$tm,
         sample    = str_c(treatment, tm, rep, sep = "-"),
@@ -256,16 +258,44 @@ sobjs <- sobjs %>%
 ```
 
 ```{r "doublets", eval = create_so && params$rm_doublets}
+# Rough cell type classifications to use for approximating homotypic doublets
+# clustering resolution 3
+sobjs <- sobjs %>%
+  map(~ {
+    .x %>%
+      norm_sobj(
+        cc_scoring = TRUE,
+        rna_method = "LogNormalize",
+        scale_data = FALSE
+      ) %>%
+      run_m3drop(assay = "RNA", var_p = 0.001) %>%
+      ScaleData(assay = "RNA") %>%
+      cluster_RNA(
+        assay      = "RNA",
+        resolution = 3,
+        dims       = 1:40,
+        pca_meta   = FALSE,
+        umap_meta  = FALSE
+      ) %>%
+      clustify(
+        ref_mat       = ref_immgen,
+        cluster_col   = "RNA_snn_res.3",
+        rename_prefix = "raw_3"
+      )
+  })
+
 # Estimate doublets
 # add doublet classifications to meta.data
 sobjs <- sobjs %>%
   map(~ {
     .x %>%
       run_doubletFinder(
-        qc_col = "qc_pass",
-        prep   = TRUE,
-        rsln   = 5,
-        PCs    = 1:50
+        qc_filter    = qc_class %in% c("high_features", "pass"),
+        clust_column = "raw_3_type",
+        prep         = TRUE,
+        rsln         = 3,
+        PCs          = 1:40,
+        capture_rate = 0.57
       ) %>%
       mutate_meta(
         mutate,
@@ -281,7 +311,7 @@ sobjs <- sobjs %>%
 
 
 # # CHECK DOUBLET FILTERING
-# so_raw_df %>%
+# so_raw_old %>%
 #   split(.$orig.ident) %>%
 #   map_dbl(~ {
 #     dbl_rate <- 0.0000046
@@ -430,7 +460,7 @@ so <- merge(so[[1]], so[-1], add.cell.ids = names(so))
 # find variable features with M3Drop
 so <- so %>%
   run_m3drop(assay = "RNA", var_p = 0.001) %>%
-  ScaleData(assay = "RNA", vars.to.regress = "pct_mito") %>%
+  ScaleData(assay = "RNA") %>%
   cluster_RNA(
     assay      = "RNA",
     resolution = rslns,

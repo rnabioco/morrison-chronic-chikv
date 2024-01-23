@@ -501,11 +501,10 @@ norm_sobj <- function(sobj_in, rna_assay = "RNA", adt_assay = "ADT", cc_scoring 
 #' 
 #' @param sobj_in Seurat object with low quality cells removed
 #' @param assay Name of assay in object.
-#' @param n_cells Number of cells to use when estimating doublet rate.
-#' @param qc_column Column containing TRUE/FALSE values indicating which cells
-#' should be used with doubletFinder.
-#' @param dbl_rate Expected doublet rate for experiment. If set to NULL,
-#' expected doublet rate will be estimated based on number of captured cells.
+#' @param qc_filter Expression to select cells that should be used with doubletFinder.
+#' @param capture_rate Fraction of loaded cells estimated to have been captured.
+#' @param dbl_rate Fraction of expected doublets for 10k cells, e.g. dbl_rate = 0.046
+#' indicates that for 10k cells, 4.6% are expected to be doublets.
 #' @param gene_min Minimum number of detected genes to use for filtering low
 #' quality cells
 #' @param mito_max Maximum percentage of mitochondrial reads to use for
@@ -524,22 +523,24 @@ norm_sobj <- function(sobj_in, rna_assay = "RNA", adt_assay = "ADT", cc_scoring 
 #' @param ... Additional arguments to pass to doubletFinder_v3.
 #' @return Seurat object with doublet classifications add to meta.data
 #' @export
-run_doubletFinder <- function(sobj_in, assay = "RNA", n_cells = ncol(sobj_in),
-                              qc_column = "qc_pass", dbl_rate = NULL,
+run_doubletFinder <- function(sobj_in, assay = "RNA", qc_filter,
+                              capture_rate = 0.57, dbl_rate = 0.046,
                               prep = TRUE, PCs = 1:40, pN = 0.25,
                               reuse.pANN = FALSE, rsln = 1,
-                              clust_column = "seurat_clusters",
+                              clust_column = NULL,
                               mito_clmn = "pct_mito", ...) {
   
   # Remove low quality cells
-  res <- sobj_in %>%
-    subset(!!sym(qc_column))
+  n_cells <- length(Cells(sobj_in))
   
+  dbl_dat <- sobj_in %>%
+    subset(subset = {{qc_filter}})
+
   # Preprocess object
   if (prep || (is.logical(reuse.pANN) && !reuse.pANN)) {
-    clust_column <- "seurat_clusters"
+    clust_column <- clust_column %||% "seurat_clusters"
     
-    res <- res %>%
+    dbl_dat <- dbl_dat %>%
       norm_sobj(
         rna_assay  = assay,
         rna_method = "LogNormalize",
@@ -553,7 +554,8 @@ run_doubletFinder <- function(sobj_in, assay = "RNA", n_cells = ncol(sobj_in),
   }
   
   # pK identification
-  sweep_res   <- paramSweep_v3(res, PCs = PCs)
+  # GT parameter used only if "ground truth" data is included
+  sweep_res   <- paramSweep_v3(dbl_dat, PCs = PCs)
   sweep_stats <- summarizeSweep(sweep_res, GT = FALSE)
   bcmvn       <- find.pK(sweep_stats)
   
@@ -564,29 +566,25 @@ run_doubletFinder <- function(sobj_in, assay = "RNA", n_cells = ncol(sobj_in),
     as.double()
   
   # Estimate expected doublet rate based on number of captured cells
-  # assumes a capture rate of 57% and multiplet rate of 4.6e-6
+  # assumes a capture rate of 57% and multiplet rate of 4.6e-6 (* n_cells)
   # assumptions are described here: https://satijalab.org/costpercell/
-  if (is.null(dbl_rate)) {
-    dbl_rate <- 0.0000046
-    cap_rate <- 0.57
-    
-    dbl_rate <- (n_cells / cap_rate) * dbl_rate
-  }
+  dbl_rate <- dbl_rate / 10000
+  dbl_rate <- (n_cells / capture_rate) * dbl_rate
   
   # Homotypic doublet proportion estimate
   # homotypic doublets involve cells with the same transcriptional profile and
   # will not be detected by doubletFinder
   # homotypic doublet rate is estimated based on the distribution of cells
   # within cell clusters
-  clsts       <- pull(res@meta.data, clust_column)
+  clsts       <- pull(dbl_dat@meta.data, clust_column)
   htypic_prop <- modelHomotypic(clsts)
-  nExp        <- round(dbl_rate * length(Cells(res)))
-  nExp_adj    <- round(nExp * (1 - htypic_prop))
+  nExp        <- round(dbl_rate * length(Cells(dbl_dat)))  # expected number of doublets
+  nExp_adj    <- round(nExp * (1 - htypic_prop))           # adjusted for homotypic doublets that will not be detected
   
   # Run doubletFinder
   dbl_clmn <- str_c("DF.classifications", pN, pK, nExp_adj, sep = "_")
   
-  res <- res %>%
+  res <- dbl_dat %>%
     doubletFinder_v3(
       PCs        = PCs,
       pK         = pK,
@@ -598,10 +596,10 @@ run_doubletFinder <- function(sobj_in, assay = "RNA", n_cells = ncol(sobj_in),
     FetchData(dbl_clmn)
   
   # Add doublet classifications to original object
-  res <- sobj_in %>%
+  sobj_in <- sobj_in %>%
     AddMetaData(res, "dbl_class")
   
-  res
+  sobj_in
 }
 
 #' Run PCA and UMAP for gene expression data
@@ -2601,7 +2599,7 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
                                    fc_min = 0.25, fc_range = c(-Inf, Inf),
                                    n_reps = NULL, filter_sig = FALSE,
                                    filter_regex = NULL,
-                                   file_path = NULL, overwrite = FALSE) {
+                                   file_path = NULL, overwrite = FALSE, n_threads = 6) {
   
   if (is.null(ident_1) && !is.null(ident_2)) {
     stop("Must specify ident_1 when ident_2 is given.")
@@ -2732,11 +2730,25 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
     res
   }
   
+  .plan_future <- function(grps, n_thr) {
+    n_thr    <- min(n_thr, length(grps))
+    fut_args <- list(strategy = "sequential")
+    
+    if (n_thr > 1) {
+      fut_args$strategy <- "multisession"
+      fut_args$workers  <- n_thr
+    }
+    
+    purrr::lift_dl(future::plan)(fut_args)
+  }
+  
   if (!is.null(group_var)) {
     grps <- unique(sobj_in[[group_var, drop = TRUE]])
     
+    .plan_future(grps, n_threads)
+    
     res <- grps %>%
-      map_dfr(~ {
+      future_map_dfr(~ {
         dat <- sobj_in %>%
           subset(!!sym(group_var) == .x)
         
@@ -2745,9 +2757,15 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
           mutate(!!sym(group_var) := .x, .before = ident_1)
       })
     
+    future::plan("sequential")
+    
   } else {
+    .plan_future(ident_1, n_threads)
+    
     res <- ident_1 %>%
       map_dfr(~ .find_conserved_markers(sobj_in, .x))
+    
+    future::plan("sequential")
   }
   
   # Remove genes that match filt_regex
