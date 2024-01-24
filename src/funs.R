@@ -2599,7 +2599,8 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
                                    fc_min = 0.25, fc_range = c(-Inf, Inf),
                                    n_reps = NULL, filter_sig = FALSE,
                                    filter_regex = NULL,
-                                   file_path = NULL, overwrite = FALSE, n_threads = 6) {
+                                   file_path = NULL, overwrite = FALSE,
+                                   n_threads = 6) {
   
   if (is.null(ident_1) && !is.null(ident_2)) {
     stop("Must specify ident_1 when ident_2 is given.")

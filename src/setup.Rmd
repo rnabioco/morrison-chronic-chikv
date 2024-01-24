@@ -635,6 +635,8 @@ so_mac <- so_mac %>%
 ```{r "macrophage subsets", eval = create_so}
 # Format culemann gene lists
 # Cx3cr1 is tagged with TdTomato
+# to annotate subsets used wildtype markers for all populations except
+# infiltrating
 feats <- culemann_genes %>%
   imap(~ {
     fts <- .x %>%
@@ -663,8 +665,8 @@ so_mac <- so_mac %>%
   mutate_meta(dplyr::select, -any_of(names(feats))) %>%
   AddModuleScore(
     features = feats,
-    name = names(feats),
-    seed = 42
+    name     = names(feats),
+    seed     = 42
   ) %>%
   mutate_meta(dplyr::rename, !!!syms(mod_clmns))
 
@@ -672,11 +674,11 @@ feats_use <- feat_lvls
 
 # Module score cutoffs for assigning annotations
 ann_key <- c(
-  AQP1_interstitial      = -0.1,
+  AQP1_interstitial      = -0.2,
   CCR2_IL1B_infiltrating = 0.3,
-  CCR2_ARG1_infiltrating = 0.3,
-  CX3CR1_lining          = 0.75,
-  RELMa_interstitial     = 0.61
+  CCR2_ARG1_infiltrating = 0.25,
+  CX3CR1_lining          = 0.8,
+  RELMa_interstitial     = 0.8
 )
 
 # Add subset labels to object
@@ -693,7 +695,7 @@ ann_key %>%
         .x %>%
           group_by(!!sym(final_clsts$mac)) %>%
           mutate(
-            mac_type = ifelse(mean(!!sym(clmn)) > cut, clmn, mac_type)
+            mac_type = ifelse(median(!!sym(clmn)) > cut, clmn, mac_type)
           ) %>%
           ungroup()
       })

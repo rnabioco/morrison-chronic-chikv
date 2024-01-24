@@ -29,6 +29,7 @@ params:
   t_res:       1                         # Resolution for annotating T cells
   fib_res:     5                         # Resolution for annotating fibroblasts cells
   tm:          "28dpi"                   # Label for time point
+  n_threads:   2
   rslns:
     value:
       type: 5
@@ -63,59 +64,6 @@ options(future.globals.maxSize = 1 * 1024^3)
 knitr::knit(here::here("src/setup.Rmd"), output = "")
 ```
 
-```{r "functions"}
-plot_examples <- function(so_in, gns, split = NULL, thm = NULL,
-                          clrs = c("#56B4E9", "white", "red")) {
-  gns %>%
-    map(~ {
-      res <- so_in %>%
-        FetchData(c("UMAP_1", "UMAP_2", split, .x)) %>%
-        arrange(!!sym(.x)) %>%
-        
-        ggplot(aes(UMAP_1, UMAP_2, fill = !!sym(.x))) +
-        geom_point_trace(size = 0.7, stroke = 0.5) +
-        scale_fill_gradientn(colours = clrs) +
-        guides(fill = guide_colorbar(ticks = FALSE, barheight = unit(150, "pt"))) +
-        ggtitle(.x)
-      
-      if (!is.null(thm)) res <- res + thm
-      
-      if (!is.null(split)) {
-        res <- res +
-          facet_wrap(as.formula(str_c("~ ", split)))
-      }
-      
-      res +
-        theme(
-          plot.title      = element_text(hjust = 0.5, size = 24),
-          legend.position = "right"
-        )
-    })
-}
-
-#' Fetch genes for the provided annotations
-fetch_genes <- function(terms, mart) {
-  att  <- c("ensembl_gene_id", "external_gene_name")
-  names(terms) <- names(terms) %||% rep("go_parent_name", length(terms))
-  names(terms)[names(terms) == ""] <- "go_parent_name"
-  
-  res <- terms %>%
-    imap(~ {
-      getBM(
-        attributes = att,
-        filters    = .y,
-        values     = .x,
-        mart       = mart
-      ) %>%
-        pull(external_gene_name)
-    }) %>%
-    reduce(c) %>%
-    unique()
-  
-  res
-}
-```
-
 ```{r "format objects"}
 # Calculate median fraction of CHIKV+ cells for clusters
 so_mac <- so_mac %>%
@@ -127,17 +75,6 @@ so_mac <- so_mac %>%
       ) %>%
       ungroup()
   })
-
-# # CLUSTER 9 MIGHT BE BETTER CHARACTERIZED AS INFILTRATING
-# so_mac <- so_mac %>%
-#   mutate_meta(
-#     mutate,
-#     mac_type = ifelse(
-#       !!sym(final_clsts$mac) == "9",
-#       "infiltrating",
-#       mac_type
-#     )
-#   )
 
 # Set cutoff based on median fraction of CHIKV+ cells
 # get the median for cells, not clusters, so low/high groups are similar size
@@ -174,7 +111,8 @@ mac_degs <- so_mac %>%
     fc_min     = 0.25,
     n_reps     = 2,
     filter_sig = FALSE,
-    file_path  = here(dirs$table_dir, "mac_chikv_markers.tsv")
+    file_path  = here(dirs$table_dir, "mac_chikv_markers.tsv"),
+    n_threads  = params$n_threads
   )
 
 # Save significant markers as xlsx file
@@ -246,7 +184,8 @@ mac_type_degs <- so_mac %>%
     fc_min     = 0.25,
     n_reps     = 2,
     filter_sig = FALSE,
-    file_path  = here(dirs$table_dir, "mac_type_chikv_markers.tsv")
+    file_path  = here(dirs$table_dir, "mac_type_chikv_markers.tsv"),
+    n_threads  = params$n_threads
   )
 
 # Save significant markers as xlsx file
@@ -255,11 +194,15 @@ info <- "
   Genes were filtered for those where the change in expression was in the same
   direction (up or down) for all replicates,
   an adjusted p value < 0.05 and
-  an absolute log2 fold change > 0.25 for at least 2/3 replicates
+  an absolute log2 fold change > 0.25 for at least 2/3 replicates.
+  Mitochondrial genes are not shown.
 "
 
 mac_type_degs_sig <- mac_type_degs %>%
-  filter(significant & all_same_direction)
+  filter(
+    significant & all_same_direction,
+    !grepl("^mt-", gene)
+  )
 
 mac_type_degs_sig %>%
   write_xlsx(
@@ -284,7 +227,8 @@ t_type_degs <- so_t %>%
     fc_min     = 0.25,
     n_reps     = 2,
     filter_sig = FALSE,
-    file_path  = here(dirs$table_dir, "t_type_markers.tsv")
+    file_path  = here(dirs$table_dir, "t_type_markers.tsv"),
+    n_threads  = params$n_threads
   )
 
 # Save significant markers as xlsx file
@@ -351,7 +295,8 @@ t_degs_1 <- so_t %>%
     fc_min     = 0.25,
     n_reps     = 2,
     filter_sig = FALSE,
-    file_path  = here(dirs$table_dir, "t_chikv_markers-1.tsv")
+    file_path  = here(dirs$table_dir, "t_chikv_markers-1.tsv"),
+    n_threads  = params$n_threads
   )
 
 t_degs_sig_1 <- t_degs_1 %>%
@@ -406,8 +351,10 @@ t_degs_2 <- read_tsv(chikv_deg_file)
 
 t_degs_sig_2 <- t_degs_2 %>%
   filter(
-    p_val_adj < 0.05,
-    avg_log2FC > 0.25
+    p_val_adj  < 0.05,
+    avg_log2FC > 0.25,
+    pct.1      > 0.3,
+    pct.2      < 0.7
   )
 ```
 
@@ -440,6 +387,65 @@ if (!file.exists(chikv_deg_file)) {
 
 t_degs_3 <- read_tsv(chikv_deg_file)
 ```
+
+# Summary
+
+<u>Macrophages</u>
+
+* Lining macrophage clusters were further assessed.
+  The detection of this population is inconsistent for the mock-infected
+  replicates (higher for r1, really low for r2, r3).
+  This inconsistency is largely because doublets are being disproportionately
+  marked/filtered from the lining r2 and r3 populations.
+  The data were reprocessed after reducing the stringency of this step.
+  This results in more consistent (and I think accurate) detection of the
+  lining population, and there is a more reproducible reduction in this
+  population in the CHIKV samples (which supports previous data).
+* Plots are included showing expression of the Culemann et al. gene lists used
+  for annotating the macrophage subsets.
+* CHIKV+ cells were further assessed.
+  Plots are included for the previous approach where macrophages clusters are
+  split into CHIKV-high/low groups.
+  The enrichment of CHIKV+ cells in specific populations was also assessed
+  using a hypergeometric test.
+  The populations with the highest fraction of CHIKV+ cells are lining and
+  infiltrating macrophages.
+  However, the p-values are not impressive.
+  I'm going to see if I can come up with a better approach for presenting these
+  results.
+* Plots are included summarizing differentially expressed genes for mock vs
+  CHIKV for all macrophages grouped together, and for each individual subset.
+* There are two key background signals that are observable when looking at genes
+  downregulated in the CHIKV samples. 
+  * The mock samples are generally lower quality and have a higher proportion of
+    mitochondrial counts, to account for this, mitochondrial genes have been
+    omitted from the figures.
+  * The mock samples also show higher expression of genes associated with
+    skeletal muscle in all cell types (troponin, myosin genes).
+    In 28 dpi datasets there are two clusters annotated as skeletal muscle,
+    however, these cells are generally too large for the microfluidics used
+    in the 10x platform.
+    Many of these muscle cells are likely not fully intact and the mRNA
+    originating from these cells likely contaminated the buffer during capture.
+    There is no reason to believe this background signal is skewing our results,
+    but this explains why troponin/myosin genes are differentially expressed 
+    (for publication it would be reasonable to omit these genes and explain why). 
+* Plots are included summarizing expression of MHC class II genes for
+  mock vs CHIKV for each subset.
+* Plots were regenerated for the Simmons et al. gene lists after adjusting
+  QC filtering as described above.
+
+<u>T cells</u>
+
+* Plots are included for marker genes for different T cell subsets.
+* Plots are included showing Ifng expression for all subsets mock vs CHIKV.
+* Plots are included summarizing differentially expressed genes for
+  mock vs CHIKV for all T cells grouped together,
+  and for CD4/CD8 T cells grouped together.
+
+<br>
+
+<br>
 
 UMAP projections show sample groups (left), cell type annotations (middle),
 and CHIKV+ cells (right).
@@ -493,7 +499,7 @@ u3 <- so@meta.data %>%
     trace_position = "bottom",
     fill = "white",
     stroke = 0.7,
-    size = 1
+    size = 0.5
   ) +
   geom_point(
     aes(color = cell_type),
@@ -743,7 +749,7 @@ so_mac %>%
   
   mutate(
     cluster = str_c(!!sym(final_clsts$mac), name),
-    cluster = fct_reorder(cluster, value, mean, .desc = TRUE)
+    cluster = fct_reorder(cluster, value, median, .desc = TRUE)
   ) %>%
   ggplot(aes(cluster, value, fill = mac_type)) +
   geom_boxplot(outlier.size = 0.5) +
@@ -1311,7 +1317,12 @@ so_mac@meta.data %>%
 ## Differential expression {.tabset .tabset-pills}
 
 Top 50 upregulated genes associated with arthritis are shown below for
-mock- vs CHIKV-infected macrophages.
+mock- vs CHIKV-infected macrophages (all subsets grouped together).
+
+Genes were filtered for those where the change in expression was in the same
+direction (up or down) for all replicates,
+an adjusted p value < 0.05 and an absolute log2 fold change > 0.25
+for at least 2/3 replicates
 
 ```{r, fig.width = 11, fig.height = 8}
 # GSEA genes associated with bone disease
@@ -1609,8 +1620,14 @@ plot_grid(
 
 <br>
 
-Top 60 upregulated genes in CHIKV-infected mice are shown below for each
-macrophage subset.
+Top 60 differentially expressed genes in CHIKV-infected mice
+are shown below for each macrophage subset.
+
+Genes were filtered for those where the change in expression was in the same
+direction (up or down) for all replicates,
+an adjusted p value < 0.05 and an absolute log2 fold change > 0.25
+for at least 2/3 replicates.
+Mitochondrial genes are not shown.
 
 Upset plots (top) show the overlap between differentially expressed genes
 identified for each subset.
@@ -1618,6 +1635,7 @@ Subsets with overlapping genes are connected by a
 black line, bars show the number of genes.
 A single point (not connected by a black line) shows the number of unique genes
 for the subset.
+The number of shared macrophage subsets is shown in parenthesis for each genes.
 
 ```{r "DEG upset plot", fig.width = 10, fig.height = 4}
 # Format data for upset plots
@@ -1954,7 +1972,7 @@ plot_grid(
 
 <br>
 
-Key markers are shown below for T cells from mock- and CHIKV-infected samples.
+T cell marker genes are shown below for mock- and CHIKV-infected samples.
 
 ```{r "t subset markers", fig.height = 20, fig.width = 20}
 # Genes to plot
@@ -2110,12 +2128,15 @@ plot_grid(
 
 ## Differential expression
 
-Top 80 genes upregulated in CHIKV vs mock-infected mice are shown below, all T cells
+Top 60 genes upregulated in CHIKV vs mock-infected mice are shown below, all T cells
 were grouped together.
+
+Upregulated genes were identified separately for each replicate and filtered as
+described previously for the macrophage subsets.
 
 ```{r "all upreg T cells", fig.width = 12, fig.height = 4}
 # Select genes to plot
-n_gns <- 80
+n_gns <- 60
 
 gns <- t_degs_sig_1 %>%
   filter(direction == "up") %>%
@@ -2167,14 +2188,99 @@ t_heats <- plt_dat %>%
 t_heats
 ```
 
-<br>
+```{r "T CELL AG PRESENTATION", fig.width = 16, fig.height = 20, eval = FALSE}
+# Set plot colors
+u_clrs    <- grp_cols
+u_clrs[1] <- lighten("#009E73", 0.2)
+
+names(u_clrs) <- treats
+
+# Order GO genes based on fold change
+goi_lst <- goi_lst %>%
+  map(~ {
+    gns <- t_degs_1 %>%
+      filter(gene %in% .x) %>%
+      arrange(desc(min_abs_fc)) %>%
+      pull(gene)
+    
+    c(gns, .x[!.x %in% gns])
+  })
+
+# Create gene plots
+# gn_boxes <- goi_lst$`Ag presentation` %>%
+gn_boxes <- t_degs_sig_1 %>%
+  filter(direction == "up") %>%
+  pull(gene) %>%
+  
+  imap(~ {
+    d <- so_t %>%
+      FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", "t_type", .x)) %>%
+      mutate(treatment = fct_relevel(treatment, treats))
+    
+    u <- d %>%
+      plot_scatter(
+        .x,
+        "hUMAP_1", "hUMAP_2",
+        group_col   = "treatment",
+        plot_colors = c("#56B4E9", "white", "#6A51A3"),
+        n_label     = "none",
+        size        = 0.1
+      ) +
+      guides(color = guide_colorbar(title.position = "top", ticks = FALSE)) +
+      umap_theme_2 +
+      theme(
+        legend.position = "left",
+        legend.justification = "center",
+        legend.key.width  = unit(6, "pt"),
+        legend.key.height = unit(15, "pt"),
+        legend.title = element_text(size = 12)
+      )
+    
+    bx <- d %>%
+      ggplot(aes(rep, !!sym(.x), alpha = treatment, fill = rep)) +
+      geom_boxplot(outlier.size = 0.25) +
+      scale_fill_manual(values = t_clrs) +
+      scale_alpha_manual(values = c(0.1, 1)) +
+      ggtitle(.x) +
+      base_theme +
+      theme(
+        plot.margin     = margin(0, 15, 0, 15),
+        panel.border    = element_blank(),
+        legend.position = "none",
+        plot.title      = element_text(size = 14),
+        axis.line.y     = element_line(color = "grey85", size = 0.5),
+        axis.title      = element_blank(),
+        axis.text.x     = element_text(angle = 25, hjust = 1, vjust = 1, size = 8),
+        axis.text.y     = element_text(size = 8)
+        # axis.ticks.x    = element_blank()
+      )
+    
+    plot_grid(
+      u, bx, NULL,
+      align = "h",
+      axis  = "tb",
+      nrow = 1,
+      rel_widths = c(1, 0.65, 0.1)
+    )
+  })
+
+# Create final figure
+plot_grid(
+  plotlist = gn_boxes,
+  align    = "v",
+  axis     = "rl",
+  ncol     = 2
+)
+```
 
 <br>
 
-Genes upregulated in T cells from CHIKV vs mock-infected mice are shown below.
+<br>
+
+Top 60 genes upregulated in T cells from CHIKV vs mock-infected mice are shown below.
 All CD4+ or CD8+ T cells were grouped together.
 
-```{r "upreg T cells", fig.width = 12, fig.height = 10, out.width = "70%"}
+```{r "upreg T cells", fig.width = 12, fig.height = 12, out.width = "70%"}
 # Select genes to plot
 n_gns <- 60
 
@@ -2241,7 +2347,6 @@ plot_grid(
 ```
 
 ```{r "upreg all T cells", fig.width = 8, fig.height = 10, eval = FALSE}
-
 # Select genes to plot
 gns <- t_all_degs %>%
   filter(
@@ -2308,7 +2413,6 @@ plot_grid(
   nrow = 1,
   rel_widths = c(1, 0.7)
 )
-
 ```
 
 ```{r "upreg T cell subsets", fig.width = 8, fig.height = 10, eval = FALSE}
