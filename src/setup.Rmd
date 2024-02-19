@@ -707,6 +707,10 @@ so_mac <- so_mac %>%
     mac_type = replace_na(mac_type, "unassigned"),
     mac_type = str_remove(mac_type, ".+_(?=infiltrating)")
   )
+
+# Add macrophage annotations to main object
+so <- so %>%
+  AddMetaData(FetchData(so_mac, "mac_type"))
 ```
 
 ```{r "MACROPHAGE SUBSET PLOTS", eval = FALSE}
@@ -912,6 +916,10 @@ so_t <- so_t %>%
     cd4_8  = str_extract(t_type, "^CD[48]"),
     cd4_8  = replace_na(cd4_8, "other")
   )
+
+# Add T annotations to main object
+so <- so %>%
+  AddMetaData(FetchData(so_t,))
 ```
 
 ```{r "T CELL SUBSET PLOTS", eval = FALSE}

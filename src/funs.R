@@ -2418,6 +2418,65 @@ create_gene_fig <- function(df_in, grps, feat, feat_clrs = c("white", "#D7301F")
   res
 }
 
+#' Figure showing Ifng
+create_ifng_plots <- function(so_in, x = "UMAP_1", y = "UMAP_2",
+                              type_col = "t_type", bx_clrs = t_clrs,
+                              u_clr = "#035B8F", pt_size = 1) {
+  
+  gn <- "Ifng"
+  
+  u <- so_in %>%
+    plot_scatter(
+      gn, x, y,
+      group_col   = "treatment",
+      size        = pt_size,
+      outline     = TRUE,
+      plot_colors = c("white", u_clr)
+    ) +
+    guides(fill = guide_colorbar(
+      ticks     = FALSE,
+      barwidth  = unit(7, "pt"),
+      barheight = unit(100, "pt")
+    )) +
+    umap_theme +
+    theme(
+      plot.margin  = margin(0, 15, 0, 15),
+      panel.border = element_rect(colour = ln_col, linewidth = ln_pt)
+    )
+  
+  bx <- so_in %>%
+    plot_violin(
+      "Ifng",
+      cluster_col   = type_col,
+      group_col     = "treatment",
+      method        = "boxplot",
+      plot_colors   = bx_clrs,
+      outlier.size  = 0.5,
+      outlier.alpha = 1,
+      width         = 0.6,
+      n_label       = "legend",
+      key_glyph     = draw_key_point,
+      color         = "black",
+      alpha         = 1
+    ) +
+    labs(y = str_c(gn, " expression")) +
+    theme(
+      plot.margin     = margin(0, 15, 0, 15),
+      legend.position = "none",
+      legend.title    = element_blank(),
+      axis.text.x     = element_text(angle = 45, hjust = 1)
+    )
+  
+  res <- plot_grid(
+    u, bx,
+    ncol  = 1,
+    align = "v",
+    axis  = "rl",
+    rel_heights = c(1, 0.5)
+  )
+  
+  res
+}
 
 # Marker figures ----
 

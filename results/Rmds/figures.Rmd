@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options:
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 <br>
@@ -561,7 +561,124 @@ so_raw_df %>%
   )
 ```
 
+<br>
 
+<br>
+
+The fraction of cells identified for each cell type is shown below.
+
+```{r "cell type bargraphs", fig.width = 5, fig.height = 4, out.width = "50%"}
+so@meta.data %>%
+  mutate(
+    cell_type = fct_infreq(cell_type),
+    treatment = fct_relevel(treatment, treats)
+  ) %>%
+  ggplot(aes(rep, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ treatment) +
+  scale_fill_manual(values = type_cols) +
+  scale_y_continuous(breaks = c(0, 0.5, 1)) +
+  labs(y = "fraction of cells") +
+  djvdj_theme() +
+  theme(
+    aspect.ratio = 2.5,
+    strip.text   = element_text(size = ttl_pt2),
+    legend.title = element_blank(),
+    legend.text  = element_text(size = txt_pt2),
+    panel.border = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = ttl_pt2),
+    axis.text.x  = element_blank(),
+    axis.text.y  = element_text(size = txt_pt2),
+    axis.ticks.x = element_blank()
+  )
+```
+
+<br>
+
+<br>
+
+The fraction of CHIKV+ cells identified for each cell type is shown below.
+
+```{r "CHIKV+ type bargraphs", fig.width = 5, fig.height = 4, out.width = "50%"}
+dat <- so@meta.data %>%
+  filter(chikv_grp == "CHIKV-high") %>%
+  mutate(cell_type = fct_infreq(cell_type))
+
+lgnd_labs <- dat %>%
+  group_by(cell_type) %>%
+  summarize(n = n(), .groups = "drop") %>%
+  mutate(lab = str_c(cell_type, " (n = ", label_comma()(n), ")"))
+
+lgnd_labs <- set_names(lgnd_labs$lab, lgnd_labs$cell_type)
+
+dat %>%
+  ggplot(aes(rep, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = type_cols, labels = lgnd_labs) +
+  scale_y_continuous(breaks = c(0, 0.5, 1)) +
+  labs(y = "fraction of CHIKV+ cells") +
+  djvdj_theme() +
+  theme(
+    aspect.ratio = 2.5,
+    strip.text   = element_text(size = ttl_pt2),
+    legend.title = element_blank(),
+    legend.text  = element_text(size = txt_pt2),
+    panel.border = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = ttl_pt2),
+    axis.text.x  = element_blank(),
+    axis.text.y  = element_text(size = txt_pt2),
+    axis.ticks.x = element_blank()
+  )
+```
+
+<br>
+
+<br>
+
+## Ifng expression
+
+Ifng expression is shown below for each cell type.
+
+```{r "cell type Ifng 1", fig.width = 7, fig.height = 6, out.width = "65%"}
+so %>%
+  mutate_meta(
+    mutate,
+    treatment = fct_relevel(treatment, treats)
+  ) %>%
+  create_ifng_plots(
+    type_col = "cell_type",
+    bx_clrs  = type_cols,
+    pt_size  = 0.1
+  )
+```
+
+<br>
+
+Ifng expression is shown below for each cell type. CD4 Teffs are plotted as a
+separate group.
+
+```{r "cell type Ifng 2", fig.width = 7, fig.height = 6, out.width = "65%"}
+clrs <- type_cols
+clrs[c("CD4 Teff", "other T cells")] <- type_cols["T cells"]
+
+so %>%
+  mutate_meta(
+    mutate,
+    treatment = fct_relevel(treatment, treats),
+    cell_type = case_when(
+      t_type == "CD4 Teff"                          ~ t_type,
+      cell_type == "T cells" & t_type != "CD4 Teff" ~ "other T cells",
+      TRUE                                          ~ cell_type
+    )
+  ) %>%
+  create_ifng_plots(
+    type_col = "cell_type",
+    bx_clrs  = clrs,
+    pt_size  = 0.1
+  )
+```
 
 ```{r "FRACTION MUSCLE COUNTS", eval = FALSE}
 # COULD ALSO CHECK MSCL MARKERS FOR CELLS THAT WERE QC FILTERED
@@ -1688,10 +1805,10 @@ degs_upset <- upset_dat %>%
 degs_upset
 ```
 
-```{r "DEG heatmaps", fig.width = 6, fig.height = 10, results = "asis", out.width = "50%"}
+```{r "DEG heatmaps", fig.width = 8, fig.height = 5, results = "asis", out.width = "50%"}
 # Plot top 60 DEGs
 # sort by number of cell types sharing gene then min_abs_fc
-n_gns <- 60
+n_gns <- 20
 
 heats <- mac_type_degs_sig %>%
   split(.$mac_type) %>%
@@ -1699,6 +1816,7 @@ heats <- mac_type_degs_sig %>%
     typ <- .y
     
     .x %>%
+      mutate(direction = fct_relevel(direction, c("up", "down"))) %>%
       split(.$direction) %>%
       imap(~ {
         gns <- .x %>%
@@ -1720,9 +1838,12 @@ heats <- mac_type_degs_sig %>%
           ungroup() %>%
           mutate(gene = fct_relevel(gene, rev(gns))) %>%
           arrange(gene) %>%
-          mutate(lab = fct_inorder(lab))
+          mutate(
+            lab       = fct_inorder(lab),
+            treatment = fct_relevel(treatment, treats)
+          )
         
-        asp_rat <- min(10, length(gns) / n_distinct(so_mac$rep))
+        asp_rat <- min(10, length(gns) / n_distinct(so_mac$rep)) * 0.55
         
         dat %>%
           ggplot(aes(rep, lab, fill = value)) +
@@ -1850,11 +1971,6 @@ mod_plts <- names(mods) %>%
     # Boxplots
     b <- so_mac@meta.data %>%
       ggplot(aes(mac_type, !!sym(.x), fill = mac_type, alpha = treatment)) +
-      # geom_violin(draw_quantiles = c(0.25, 0.75), scale = "width", position = position_dodge(width = 1.01)) +
-      # stat_summary(
-      #   geom = "point", fun = median,
-      #   position = position_dodge2(width = 1), show.legend = FALSE
-      # ) +
       geom_boxplot(outlier.size = 0.1, key_glyph = draw_key_point, notch = TRUE) +
       scale_fill_manual(values = mac_typ_cols) +
       scale_alpha_manual(values = c(0.25, 0.9)) +
@@ -1884,9 +2000,202 @@ mod_plts %>%
     
     print(.x)
     
-    cat("\n\n---\n\n<br>\n\n<br>\n\n")
+    cat("\n\n<br>\n\n<br>\n\n")
   })
 ```
+
+## Lum et al.
+
+Expression of genes identified by Lum et al. is shown below. This only includes
+the 28 differentially expressed genes included in the supplementary data.
+
+```{r "load Lum genes"}
+lum_path <- here("ref/2024_Lum/44321_2024_28_moesm2_esm.xlsx")
+
+lum_genes <- lum_path %>%
+  read.xlsx2(sheetName = "1600pm_26Feb2022_Results table ") %>%
+  pull(Associated.Genes.Found) %>%
+  str_remove_all("[,\\[\\]]") %>%
+  str_split(" ") %>%
+  purrr::reduce(c) %>%
+  unique()
+
+lum_genes <- so_mac %>%
+  FetchData(lum_genes) %>%
+  colMeans() %>%
+  sort(decreasing = TRUE) %>%
+  names()
+```
+
+```{r "lum module scores", fig.width = 10, fig.height = 8.5, out.width = "70%", eval = FALSE}
+# Add module scores for Lum et al. gene list
+lum_mod <- list(Lum = lum_genes)
+
+so_mac <- so_mac %>%
+  AddModuleScore(lum_mod, name = "lum") %>%
+  mutate_meta(~ {
+    .x %>%
+      rename(lum = lum1) %>%
+      mutate(treatment = fct_relevel(treatment, treats))
+  })
+
+# Text theme
+txt_theme <- theme(
+  plot.title = element_text(size = 24),
+  strip.text = element_text(size = 18),
+)
+
+# UMAP projections
+u <- so_mac %>%
+  plot_scatter(
+    "lum",
+    "hUMAP_1", "hUMAP_2",
+    group_col    = "treatment",
+    outline      = TRUE,
+    plot_colors  = c("#56B4E9", "white", "#D7301F"),
+    label_params = list(size = 16)
+  ) +
+  guides(fill = guide_colorbar(
+    ticks = FALSE,
+    barheight = unit(150, "pt"),
+    barwidth = unit(12, "pt"),
+    frame.colour = ln_col
+  )) +
+  umap_theme +
+  txt_theme +
+  theme(
+    aspect.ratio     = NULL,
+    panel.background = element_rect(color = ln_col),
+    plot.margin      = margin(50, 5, 5, 5, unit = "pt"),
+    plot.title       = element_text(hjust = 0.5, size = 24),
+    strip.text       = element_text(size = 18),
+    legend.title     = element_blank()
+  )
+
+# Histograms
+treat_clrs <- c(
+  mock = "#56B4E9", CHIKV = "#D7301F"
+)
+
+h <- so_mac@meta.data %>%
+  mutate(treatment = fct_relevel(treatment, rev(treats))) %>%
+  ggplot(aes(lum, fill = treatment)) +
+  geom_histogram(position = "identity", alpha = 0.7, bins = 30) +
+  scale_fill_manual(values = treat_clrs) +
+  labs(y = "number of cells") +
+  base_theme +
+  theme(
+    legend.position      = "bottom",
+    legend.justification = 0.5,
+    legend.title         = element_blank(),
+    legend.text          = element_text(size = 14),
+    axis.title.x         = element_blank(),
+    axis.title.y         = element_text(size = 14)
+  )
+
+# Boxplots
+b <- so_mac@meta.data %>%
+  ggplot(aes(mac_type, lum, fill = mac_type, alpha = treatment)) +
+  geom_boxplot(outlier.size = 0.1, key_glyph = draw_key_point, notch = TRUE) +
+  scale_fill_manual(values = mac_typ_cols) +
+  scale_alpha_manual(values = c(0.25, 0.9)) +
+  guides(
+    fill = "none",
+    alpha = guide_legend(override.aes = list(shape = 22, size = 4, fill = "black"))
+  ) +
+  base_theme +
+  theme(
+    legend.position      = "bottom",
+    legend.justification = 0.5,
+    legend.title         = element_blank(),
+    legend.text          = element_text(size = 14),
+    axis.title.x         = element_blank(),
+    axis.title.y         = element_text(size = 14),
+    axis.text.x          = element_text(angle = 45, hjust = 1)
+  )
+
+# Create final figure
+u / (h + b) +
+  plot_layout(heights = c(1, 0.4))
+```
+
+```{r "lum gene plots", fig.width = 16, fig.height = 32}
+# Set plot colors
+u_clrs    <- grp_cols
+u_clrs[1] <- lighten("#009E73", 0.2)
+
+names(u_clrs) <- treats
+
+# Create gene plots
+gn_boxes <- c(lum_genes, "Fcgr1") %>%
+  imap(~ {
+    d <- so_mac %>%
+      FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", "mac_type", .x)) %>%
+      mutate(treatment = fct_relevel(treatment, treats))
+    
+    u <- d %>%
+      plot_scatter(
+        .x,
+        "hUMAP_1", "hUMAP_2",
+        group_col   = "treatment",
+        plot_colors = c("#56B4E9", "white", "#6A51A3"),
+        n_label     = "none",
+        size        = 0.1
+      ) +
+      guides(color = guide_colorbar(title.position = "top", ticks = FALSE)) +
+      umap_theme_2 +
+      theme(
+        legend.position = "left",
+        legend.justification = "center",
+        legend.key.width  = unit(6, "pt"),
+        legend.key.height = unit(15, "pt"),
+        legend.title = element_text(size = 12)
+      )
+    
+    bx <- d %>%
+      ggplot(aes(mac_type, !!sym(.x), alpha = treatment, fill = mac_type)) +
+      geom_boxplot(outlier.size = 0.25) +
+      scale_fill_manual(values = mac_typ_cols_2) +
+      scale_alpha_manual(values = c(0.1, 1)) +
+      scale_x_discrete(labels = ~ str_remove(.x, "(CX3CR1_|_interstitial)")) +
+      # facet_wrap(~ treatment) +
+      ggtitle(.x) +
+      base_theme +
+      theme(
+        plot.margin     = margin(0, 15, 0, 15),
+        panel.border    = element_blank(),
+        legend.position = "none",
+        plot.title      = element_text(size = 14),
+        axis.line.y     = element_line(color = "grey85", size = 0.5),
+        axis.title      = element_blank(),
+        axis.text.x     = element_text(angle = 25, hjust = 1, vjust = 1, size = 8),
+        axis.text.y     = element_text(size = 8)
+        # axis.ticks.x    = element_blank()
+      )
+    
+    plot_grid(
+      u, bx, NULL,
+      align = "h",
+      axis  = "tb",
+      nrow = 1,
+      rel_widths = c(1, 0.65, 0.1)
+    )
+  })
+
+# Create final figure
+plot_grid(
+  plotlist = gn_boxes,
+  align    = "v",
+  axis     = "rl",
+  ncol     = 2
+)
+```
+
+---
+
+<br>
+
+<br>
 
 # T cells
 
@@ -2063,61 +2372,15 @@ t_plts %>%
 Ifng expression is shown below for each T cell subset.
 
 ```{r "Ifng expression", fig.width = 7, fig.height = 6, out.width = "65%"}
-dat <- so_t %>%
+so_t %>%
   mutate_meta(
     mutate,
     treatment = fct_relevel(treatment, treats)
+  ) %>%
+  create_ifng_plots(
+    x = "hUMAP_1", y = "hUMAP_2",
+    type_col = "t_type", bx_clrs = t_clrs, pt_size = 1
   )
-
-u <- dat %>%
-  plot_scatter(
-    "Ifng",
-    "hUMAP_1", "hUMAP_2",
-    group_col = "treatment",
-    size = 1,
-    outline = TRUE,
-    plot_colors = c("white", "#035B8F")
-  ) +
-  guides(fill = guide_colorbar(
-    ticks = FALSE,
-    barwidth  = unit(7, "pt"),
-    barheight = unit(100, "pt")
-  )) +
-  umap_theme +
-  theme(
-    plot.margin  = margin(0, 15, 0, 15),
-    panel.border = element_rect(colour = ln_col, linewidth = ln_pt)
-  )
-
-bx <- dat %>%
-  plot_violin(
-    "Ifng",
-    cluster_col   = "t_type",
-    group_col     = "treatment",
-    method        = "boxplot",
-    plot_colors   = t_clrs,
-    outlier.size  = 0.5,
-    outlier.alpha = 1,
-    width         = 0.6,
-    n_label       = "legend",
-    key_glyph     = draw_key_point,
-    color         = "black",
-    alpha         = 1
-  ) +
-  theme(
-    plot.margin     = margin(0, 15, 0, 15),
-    legend.position = "none",
-    legend.title    = element_blank(),
-    axis.text.x     = element_text(angle = 45, hjust = 1)
-  )
-
-plot_grid(
-  u, bx,
-  ncol  = 1,
-  align = "v",
-  axis  = "rl",
-  rel_heights = c(1, 0.5)
-)
 ```
 
 ---
