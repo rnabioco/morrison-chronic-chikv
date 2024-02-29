@@ -2419,11 +2419,10 @@ create_gene_fig <- function(df_in, grps, feat, feat_clrs = c("white", "#D7301F")
 }
 
 #' Figure showing Ifng
-create_ifng_plots <- function(so_in, x = "UMAP_1", y = "UMAP_2",
-                              type_col = "t_type", bx_clrs = t_clrs,
+create_ifng_plots <- function(so_in, x = "UMAP_1", y = "UMAP_2", gn = "Ifng",
+                              type_col = "t_type", grp_col = NULL,
+                              bx_clrs = t_clrs, bx_lvls = NULL,
                               u_clr = "#035B8F", pt_size = 1) {
-  
-  gn <- "Ifng"
   
   u <- so_in %>%
     plot_scatter(
@@ -2446,16 +2445,16 @@ create_ifng_plots <- function(so_in, x = "UMAP_1", y = "UMAP_2",
   
   bx <- so_in %>%
     plot_violin(
-      "Ifng",
+      gn,
       cluster_col   = type_col,
-      group_col     = "treatment",
+      group_col     = grp_col,
       method        = "boxplot",
       plot_colors   = bx_clrs,
+      plot_lvls     = bx_lvls,
       outlier.size  = 0.5,
       outlier.alpha = 1,
       width         = 0.6,
       n_label       = "legend",
-      key_glyph     = draw_key_point,
       color         = "black",
       alpha         = 1
     ) +
@@ -2477,6 +2476,136 @@ create_ifng_plots <- function(so_in, x = "UMAP_1", y = "UMAP_2",
   
   res
 }
+
+create_mac_plots <- function(so_in = so_mac, gns, u_clr = "#6A51A3",
+                             bx_clrs = c(mock = "#3AB589", CHIKV = "#0072B2"),
+                             pt_size = 0.001) {
+  ttl_sz   <- 20
+  txt_sz   <- 10
+  txt_sz_2 <- 14
+  
+  res <- gns %>%
+    map(~ {
+      d <- so_in %>%
+        FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", .x)) %>%
+        mutate(treatment = fct_relevel(treatment, treats))
+      
+      u <- d %>%
+        plot_scatter(
+          .x, x = "hUMAP_1", y = "hUMAP_2",
+          group_col   = "treatment",
+          size        = pt_size,
+          outline     = TRUE,
+          plot_colors = c("white", u_clr)
+        ) +
+        guides(fill = guide_colorbar(ticks = FALSE)) +
+        umap_theme_2 +
+        theme(
+          plot.margin          = margin(0, 15, 0, 15),
+          legend.position      = "bottom",
+          legend.justification = "center",
+          legend.key.width     = unit(20, "pt"),
+          legend.key.height    = unit(7, "pt"),
+          legend.title         = element_text(size = ttl_sz),
+          legend.text          = element_text(size = txt_sz),
+          strip.text           = element_text(size = ttl_sz)
+        )
+      
+      bx <- d %>%
+        ggplot(aes(rep, !!sym(.x), fill = treatment)) +
+        geom_boxplot(outlier.size = 0.25) +
+        scale_fill_manual(values = bx_clrs) +
+        facet_wrap(~ treatment) +
+        base_theme +
+        theme(
+          plot.margin     = margin(0, 15, 0, 15),
+          legend.position = "none",
+          panel.border    = element_blank(),
+          strip.text      = element_text(size = ttl_sz),
+          axis.line.x     = element_blank(),
+          axis.title      = element_blank(),
+          axis.text.x     = element_blank(),
+          axis.ticks.x    = element_blank()
+        )
+      
+      plot_grid(
+        u, bx, NULL,
+        align = "h",
+        axis  = "tb",
+        nrow  = 1,
+        rel_widths = c(1, 0.5, 0.1)
+      )
+    })
+  
+  res
+}
+
+create_mac_type_plots <- function(so_in, gns, u_clr = "#6A51A3",
+                                  bx_clrs = mac_typ_cols_2) {
+  ttl_sz <- 20
+  txt_sz <- 10
+  txt_sz_2 <- 14
+  
+  res <- gns %>%
+    imap(~ {
+      d <- so_in %>%
+        FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", "mac_type", .x)) %>%
+        mutate(
+          treatment = fct_relevel(treatment, treats),
+          mac_type  = fct_relevel(mac_type, names(bx_clrs))
+        )
+      
+      u <- d %>%
+        plot_scatter(
+          .x, x = "hUMAP_1", y = "hUMAP_2",
+          group_col   = "treatment",
+          size        = 0.001,
+          outline     = TRUE,
+          plot_colors = c("white", u_clr)
+        ) +
+        guides(fill = guide_colorbar(ticks = FALSE)) +
+        umap_theme_2 +
+        theme(
+          strip.text           = element_text(size = ttl_sz),
+          legend.position      = "bottom",
+          legend.justification = "center",
+          legend.key.width     = unit(20, "pt"),
+          legend.key.height    = unit(7, "pt"),
+          legend.title         = element_text(size = ttl_sz),
+          legend.text          = element_text(size = txt_sz)
+        )
+      
+      bx <- d %>%
+        ggplot(aes(mac_type, !!sym(.x), alpha = treatment, fill = mac_type)) +
+        geom_boxplot(outlier.size = 0.25) +
+        scale_fill_manual(values = bx_clrs) +
+        scale_alpha_manual(values = c(0.1, 1)) +
+        scale_x_discrete(labels = ~ str_remove(.x, "(CX3CR1_|_interstitial)")) +
+        ggtitle(.x) +
+        base_theme +
+        theme(
+          plot.margin     = margin(0, 15, 0, 15),
+          panel.border    = element_blank(),
+          legend.position = "none",
+          plot.title      = element_text(size = ttl_sz),
+          axis.line.y     = element_line(color = "grey85", size = 0.5),
+          axis.title      = element_blank(),
+          axis.text.x     = element_text(angle = 35, hjust = 1, vjust = 1, size = txt_sz_2),
+          axis.text.y     = element_text(size = txt_sz)
+        )
+      
+      plot_grid(
+        u, bx, NULL,
+        align = "h",
+        axis  = "tb",
+        nrow  = 1,
+        rel_widths = c(1, 0.65, 0.1)
+      )
+    })
+  
+  res
+}  
+
 
 # Marker figures ----
 

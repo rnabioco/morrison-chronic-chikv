@@ -1400,6 +1400,14 @@ mac_typ_cols <- set_names(
 mac_typ_cols["infiltrating"] <- "#0072B2"
 
 # New labels for Mac subsets
+mac_lvls <- c(
+  "AQP1_interstitial",
+  "RELMa_interstitial",
+  "CX3CR1_lining",
+  "infiltrating",
+  "unassigned"
+)
+
 mac_typ_labs <- names(mac_typ_cols)
   # str_replace("_interstitial", "+") %>%
   # str_replace("infiltrating", "Inflammatory") %>%
@@ -1412,7 +1420,24 @@ names(mac_typ_cols) <- mac_typ_labs[names(mac_typ_cols)]
 mac_typ_cols_2 <- mac_typ_cols
 mac_typ_cols_2["unassigned"] <- "grey75"
 
+if (any(!names(mac_typ_cols_2) %in% mac_lvls)) {
+  stop("Correct mac_lvls, some labels are not included")
+}
+
+mac_typ_cols   <- na.omit(mac_typ_cols[mac_lvls])
+mac_typ_cols_2 <- mac_typ_cols_2[mac_lvls]
+
 # T subset colors
+t_lvls <- c(
+  "CD4 Teff",
+  "CD8 Teff",
+  "CD4 naive",
+  "CD8 naive",
+  "Treg",
+  "Tgd",
+  "unassigned"
+)
+
 t_typs <- unique(so_t$t_type)
 
 t_clrs <- set_names(
@@ -1421,6 +1446,12 @@ t_clrs <- set_names(
 )
 
 t_clrs["unassigned"] <- "grey75"
+
+if (any(!names(t_clrs) %in% t_lvls)) {
+  stop("Correct mac_lvls, some labels are not included")
+}
+
+t_clrs <- t_clrs[t_lvls]
 ```
 
 

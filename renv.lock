@@ -408,7 +408,7 @@
     "HDO.db": {
       "Package": "HDO.db",
       "Version": "0.99.1",
-      "Source": "Repository",
+      "Source": "Bioconductor",
       "Requirements": [
         "AnnotationDbi",
         "R",

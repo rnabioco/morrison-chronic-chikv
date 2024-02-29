@@ -1433,6 +1433,34 @@ so_mac@meta.data %>%
 
 ## Differential expression {.tabset .tabset-pills}
 
+```{r, fig.width = 16, fig.height = 9.2}
+gns <- c("Tnf", "Il1b", "Nlrp3", "H2-Eb1", "Slamf7")
+
+so_mac %>%
+  create_mac_type_plots(
+    gns = gns,
+    bx_clrs = mac_typ_cols_2
+  ) %>%
+  plot_grid(
+    plotlist = .,
+    align = "vh",
+    axis  = "trbl",
+    ncol  = 2
+  )
+
+so_mac %>%
+  create_mac_plots(
+    gns = gns
+    # bx_clrs = mac_typ_cols_2
+  ) %>%
+  plot_grid(
+    plotlist = .,
+    align = "vh",
+    axis  = "trbl",
+    ncol  = 2
+  )
+```
+
 Top 50 upregulated genes associated with arthritis are shown below for
 mock- vs CHIKV-infected macrophages (all subsets grouped together).
 
@@ -1523,54 +1551,8 @@ u_clrs[1] <- lighten("#009E73", 0.2)
 
 names(u_clrs) <- treats
 
-gn_boxes <- gns %>%
-  map(~ {
-    d <- so_mac %>%
-      FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", .x)) %>%
-      mutate(treatment = fct_relevel(treatment, treats))
-    
-    u <- d %>%
-      plot_scatter(
-        .x,
-        "hUMAP_1", "hUMAP_2",
-        group_col   = "treatment",
-        plot_colors = c("#56B4E9", "white", "#6A51A3"),
-        n_label     = "none",
-        size        = 0.1
-      ) +
-      guides(color = guide_colorbar(title.position = "top", ticks = FALSE)) +
-      umap_theme_2 +
-      theme(
-        legend.position = "left",
-        legend.justification = "center",
-        legend.key.width  = unit(6, "pt"),
-        legend.key.height = unit(15, "pt"),
-        legend.title = element_text(size = 12)
-      )
-    
-    bx <- d %>%
-      ggplot(aes(rep, !!sym(.x), fill = treatment)) +
-      geom_boxplot(outlier.size = 0.25) +
-      scale_fill_manual(values = u_clrs) +
-      facet_wrap(~ treatment) +
-      base_theme +
-      theme(
-        legend.position = "none",
-        panel.border    = element_blank(),
-        axis.line.y     = element_line(color = "grey85", size = 0.5),
-        axis.title      = element_blank(),
-        axis.text.x     = element_blank(),
-        axis.ticks.x    = element_blank()
-      )
-    
-    plot_grid(
-      u, bx,
-      align = "h",
-      axis  = "tb",
-      nrow = 1,
-      rel_widths = c(1, 0.5)
-    )
-  })
+# Create plots for example genes
+gn_boxes <- create_mac_plots(gns)
 
 ex_plts <- plot_grid(
   plotlist = gn_boxes,
@@ -1669,61 +1651,11 @@ goi_lst <- goi_lst %>%
   })
 
 # Create gene plots
-gn_boxes <- goi_lst$`Ag presentation` %>%
-  imap(~ {
-    d <- so_mac %>%
-      FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", "mac_type", .x)) %>%
-      mutate(treatment = fct_relevel(treatment, treats))
-    
-    u <- d %>%
-      plot_scatter(
-        .x,
-        "hUMAP_1", "hUMAP_2",
-        group_col   = "treatment",
-        plot_colors = c("#56B4E9", "white", "#6A51A3"),
-        n_label     = "none",
-        size        = 0.1
-      ) +
-      guides(color = guide_colorbar(title.position = "top", ticks = FALSE)) +
-      umap_theme_2 +
-      theme(
-        legend.position = "left",
-        legend.justification = "center",
-        legend.key.width  = unit(6, "pt"),
-        legend.key.height = unit(15, "pt"),
-        legend.title = element_text(size = 12)
-      )
-    
-    bx <- d %>%
-      ggplot(aes(mac_type, !!sym(.x), alpha = treatment, fill = mac_type)) +
-      geom_boxplot(outlier.size = 0.25) +
-      scale_fill_manual(values = mac_typ_cols_2) +
-      scale_alpha_manual(values = c(0.1, 1)) +
-      scale_x_discrete(labels = ~ str_remove(.x, "(CX3CR1_|_interstitial)")) +
-      # facet_wrap(~ treatment) +
-      ggtitle(.x) +
-      base_theme +
-      theme(
-        plot.margin     = margin(0, 15, 0, 15),
-        panel.border    = element_blank(),
-        legend.position = "none",
-        plot.title      = element_text(size = 14),
-        axis.line.y     = element_line(color = "grey85", size = 0.5),
-        axis.title      = element_blank(),
-        axis.text.x     = element_text(angle = 25, hjust = 1, vjust = 1, size = 8),
-        axis.text.y     = element_text(size = 8)
-        # axis.ticks.x    = element_blank()
-      )
-    
-    plot_grid(
-      u, bx, NULL,
-      align = "h",
-      axis  = "tb",
-      nrow = 1,
-      rel_widths = c(1, 0.65, 0.1)
-    )
-  })
-
+gn_boxes <- so_mac %>%
+  create_mac_type_plots(
+    gns = goi_lst$`Ag presentation`
+  )
+  
 # Create final figure
 plot_grid(
   plotlist = gn_boxes,
@@ -2326,6 +2258,7 @@ t_plts <- key_gns %>%
         method       = "boxplot",
         outlier.size = 0.5,
         plot_colors  = t_clrs,
+        plot_lvls    = names(t_clrs),
         color        = "black",
         alpha        = 1,
         width        = 0.6
@@ -2379,7 +2312,9 @@ so_t %>%
   ) %>%
   create_ifng_plots(
     x = "hUMAP_1", y = "hUMAP_2",
-    type_col = "t_type", bx_clrs = t_clrs, pt_size = 1
+    type_col = "t_type",
+    bx_clrs = t_clrs, bx_lvls = t_lvls,
+    pt_size = 1
   )
 ```
 
