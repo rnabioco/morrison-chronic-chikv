@@ -2477,12 +2477,15 @@ create_ifng_plots <- function(so_in, x = "UMAP_1", y = "UMAP_2", gn = "Ifng",
   res
 }
 
-create_mac_plots <- function(so_in = so_mac, gns, u_clr = "#6A51A3",
+create_mac_plots <- function(so_in = so_mac, gns, u_clrs = "#6A51A3",
                              bx_clrs = c(mock = "#3AB589", CHIKV = "#0072B2"),
-                             pt_size = 0.001) {
+                             pt_size = 0.001, u_theme = theme(),
+                             bx_theme = theme()) {
   ttl_sz   <- 20
   txt_sz   <- 10
   txt_sz_2 <- 14
+  
+  if (length(u_clrs) == 1) u_clrs <- c("white", u_clrs)
   
   res <- gns %>%
     map(~ {
@@ -2496,7 +2499,7 @@ create_mac_plots <- function(so_in = so_mac, gns, u_clr = "#6A51A3",
           group_col   = "treatment",
           size        = pt_size,
           outline     = TRUE,
-          plot_colors = c("white", u_clr)
+          plot_colors = u_clrs
         ) +
         guides(fill = guide_colorbar(ticks = FALSE)) +
         umap_theme_2 +
@@ -2509,7 +2512,8 @@ create_mac_plots <- function(so_in = so_mac, gns, u_clr = "#6A51A3",
           legend.title         = element_text(size = ttl_sz),
           legend.text          = element_text(size = txt_sz),
           strip.text           = element_text(size = ttl_sz)
-        )
+        ) +
+        u_theme
       
       bx <- d %>%
         ggplot(aes(rep, !!sym(.x), fill = treatment)) +
@@ -2526,7 +2530,8 @@ create_mac_plots <- function(so_in = so_mac, gns, u_clr = "#6A51A3",
           axis.title      = element_blank(),
           axis.text.x     = element_blank(),
           axis.ticks.x    = element_blank()
-        )
+        ) +
+        bx_theme
       
       plot_grid(
         u, bx, NULL,
@@ -2540,28 +2545,48 @@ create_mac_plots <- function(so_in = so_mac, gns, u_clr = "#6A51A3",
   res
 }
 
-create_mac_type_plots <- function(so_in, gns, u_clr = "#6A51A3",
-                                  bx_clrs = mac_typ_cols_2) {
-  ttl_sz <- 20
-  txt_sz <- 10
+create_mac_type_plots <- function(so_in, gns, x = "hUMAP_1", y = "hUMAP_2",
+                                  bx_clmn = "mac_type",
+                                  p_data = NULL, p_clmn = "p.value",
+                                  pt_size = 0.001,
+                                  u_clrs = "#6A51A3", bx_clrs = mac_typ_cols_2,
+                                  rel_widths = c(1, 0.65, 0.1),
+                                  u_theme = theme(), bx_theme = theme()) {
+  ttl_sz   <- 20
+  txt_sz   <- 10
   txt_sz_2 <- 14
+  
+  grp_clmn <- "treatment"
+  grp_lvls <- treats
+  
+  if (length(u_clrs) == 1) u_clrs <- c("white", u_clrs)
+  
+  # Format p-values
+  if (!is.null(p_data)) {
+    p_data <- p_data %>%
+      rowwise() %>%
+      mutate(p_lab = .format_pvalue(!!sym(p_clmn))) %>%
+      ungroup()
+  }
   
   res <- gns %>%
     imap(~ {
       d <- so_in %>%
-        FetchData(c("hUMAP_1", "hUMAP_2", "rep", "treatment", "mac_type", .x)) %>%
+        FetchData(c(x, y, "rep", bx_clmn, grp_clmn, .x)) %>%
         mutate(
-          treatment = fct_relevel(treatment, treats),
-          mac_type  = fct_relevel(mac_type, names(bx_clrs))
+          treatment       = fct_relevel(!!sym(grp_clmn), grp_lvls),
+          !!sym(bx_clmn) := fct_relevel(!!sym(bx_clmn), names(bx_clrs))
         )
       
+      # Create UMAP
       u <- d %>%
         plot_scatter(
-          .x, x = "hUMAP_1", y = "hUMAP_2",
-          group_col   = "treatment",
-          size        = 0.001,
-          outline     = TRUE,
-          plot_colors = c("white", u_clr)
+          .x, x = x, y = y,
+          group_col    = grp_clmn,
+          size         = pt_size,
+          outline      = TRUE,
+          plot_colors  = u_clrs,
+          label_params = list(size = txt_sz_2)
         ) +
         guides(fill = guide_colorbar(ticks = FALSE)) +
         umap_theme_2 +
@@ -2573,38 +2598,64 @@ create_mac_type_plots <- function(so_in, gns, u_clr = "#6A51A3",
           legend.key.height    = unit(7, "pt"),
           legend.title         = element_text(size = ttl_sz),
           legend.text          = element_text(size = txt_sz)
-        )
+        ) +
+        u_theme
       
+      # Create boxplots
       bx <- d %>%
-        ggplot(aes(mac_type, !!sym(.x), alpha = treatment, fill = mac_type)) +
-        geom_boxplot(outlier.size = 0.25) +
+        ggplot(aes(!!sym(bx_clmn), !!sym(.x), alpha = !!sym(grp_clmn), fill = !!sym(bx_clmn))) +
+        geom_boxplot(outlier.size = 0.25, key_glyph = draw_key_point) +
         scale_fill_manual(values = bx_clrs) +
         scale_alpha_manual(values = c(0.1, 1)) +
         scale_x_discrete(labels = ~ str_remove(.x, "(CX3CR1_|_interstitial)")) +
+        guides(
+          fill = "none",
+          alpha = guide_legend(override.aes = list(size = 4, shape = 22, fill = "black"))
+        ) +
         ggtitle(.x) +
         base_theme +
         theme(
-          plot.margin     = margin(0, 15, 0, 15),
-          panel.border    = element_blank(),
-          legend.position = "none",
-          plot.title      = element_text(size = ttl_sz),
-          axis.line.y     = element_line(color = "grey85", size = 0.5),
-          axis.title      = element_blank(),
-          axis.text.x     = element_text(angle = 35, hjust = 1, vjust = 1, size = txt_sz_2),
-          axis.text.y     = element_text(size = txt_sz)
-        )
+          plot.margin      = margin(0, 15, 0, 15),
+          panel.border     = element_blank(),
+          legend.position  = c(0.3, 1.1),
+          legend.direction = "horizontal",
+          legend.title     = element_blank(),
+          legend.text      = element_text(size = txt_sz_2),
+          plot.title       = element_text(size = ttl_sz),
+          axis.line.y      = element_line(color = "grey85", size = 0.5),
+          axis.title       = element_blank(),
+          axis.text.x      = element_text(angle = 35, hjust = 1, vjust = 1, size = txt_sz_2),
+          axis.text.y      = element_text(size = txt_sz)
+        ) +
+        bx_theme
       
+      if (!is.null(p_data)) {
+        bx <- bx +
+          scale_y_continuous(expand = expansion(c(0.05, 0.15))) +
+          geom_text(
+            aes(y = Inf, label = p_lab, alpha = NULL),
+            data  = filter(p_data, gene == .x),
+            parse = TRUE,
+            color = "black",
+            vjust = 1.2,
+            size  = (txt_sz_2 * 0.7) / .pt
+          )
+      }
+      
+      # Combine plots
       plot_grid(
         u, bx, NULL,
         align = "h",
         axis  = "tb",
         nrow  = 1,
-        rel_widths = c(1, 0.65, 0.1)
+        rel_widths = rel_widths
       )
     })
   
+  if (length(res) == 1) res <- res[[1]]
+  
   res
-}  
+}
 
 
 # Marker figures ----
@@ -2767,11 +2818,14 @@ find_markers <- function(sobj_in, grp_column = NULL, exclude_grp = NULL,
 #' e.g. 'rep'
 #' @param group_var Variable to use for splitting cells when finding markers,
 #' FindConservedMarkers() will be run separately for each variable in group_var.
+#' @param p_max Maximum p-value to consider a gene significant
 #' @param fc_min Minimum absolute log2 fold change, this overrides the
 #' fc_range argument.
 #' @param fc_range Vector of length 2 containing minimum and maximum log2 fold
 #' change for markers. Use this argument to select positive or negative
 #' markers.
+#' @param p_adj_method Method to use for adjusting p-values, by default Seurat
+#' uses bonferroni correction.
 #' @param n_reps The number of biological replicates that need to conform to the
 #' provided filtering cutoffs for the gene to be considered significant.
 #' @param filter_sig Filter genes to only return significant ones based on
@@ -2785,6 +2839,7 @@ find_markers <- function(sobj_in, grp_column = NULL, exclude_grp = NULL,
 find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
                                    rep_var, group_var = NULL, p_max = 0.05,
                                    fc_min = 0.25, fc_range = c(-Inf, Inf),
+                                   p_adj_method = "bonferroni",
                                    n_reps = NULL, filter_sig = FALSE,
                                    filter_regex = NULL,
                                    file_path = NULL, overwrite = FALSE,
@@ -2833,7 +2888,7 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
   }
   
   # Find conserved markers
-  .find_conserved_markers <- function(so_in, ident_1) {
+  .find_conserved_markers <- function(so_in, ident_1, adj_method) {
     
     res <- so_in %>%
       FindConservedMarkers(
@@ -2845,16 +2900,27 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
       ) %>%
       rownames_to_column("gene")
     
-    # Filter and format output table
+    # Filter and format p-values
+    # adjust p-values based on total number of genes in input object
+    # p  <- syms(grep("_p_val_adj$", colnames(res), value = TRUE))
     if (nrow(res) > 0) {
+      n_gns <- nrow(so_in)
+      
       fc <- syms(grep("_avg_log2FC$", colnames(res), value = TRUE))
-      p  <- syms(grep("_p_val_adj$", colnames(res), value = TRUE))
+      
+      p     <- grep("^[0-9]+_p_val$", colnames(res), value = TRUE)
+      p_adj <- str_c(p, "_adj")
+      p     <- set_names(p, p_adj)
+      p_adj <- syms(p_adj)
       
       res <- res %>%
         mutate(
           ident_1 = ident_1,
           ident_2 = ident_2,
           .before = gene
+        ) %>%
+        mutate(
+          across(all_of(p), ~ p.adjust(.x, method = p_adj_method, n = n_gns))
         ) %>%
         rowwise() %>%
         mutate(
@@ -2875,8 +2941,8 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
             sum(c(!!!fc) < 0)
           ),
           
-          min_p = min(c(!!!p)),
-          max_p = max(c(!!!p))
+          min_p_adj = min(c(!!!p_adj)),
+          max_p_adj = max(c(!!!p_adj))
         ) %>%
         ungroup()
       
@@ -2889,8 +2955,8 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
           mutate(
             significant = ifelse(
               direction == "up",
-              sum(c(!!!fc) > fc_min  & c(!!!p) < p_max) >= n_reps,
-              sum(c(!!!fc) < -fc_min & c(!!!p) < p_max) >= n_reps
+              sum(c(!!!fc) > fc_min  & c(!!!p_adj) < p_max) >= n_reps,
+              sum(c(!!!fc) < -fc_min & c(!!!p_adj) < p_max) >= n_reps
             )
           )
         
@@ -2900,14 +2966,14 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
             significant = sum(
               c(!!!fc) > fc_range[1] &
                 c(!!!fc) < fc_range[2] &
-                c(!!!p) < p_max
+                c(!!!p_adj) < p_max
             ) >= n_reps
           )
       }
       
       res <- res %>%
         ungroup() %>%
-        arrange(desc(avg_fc))
+        arrange(max_p_adj)
       
       # Filter genes based on significance cutoffs
       if (filter_sig) {
@@ -2944,7 +3010,7 @@ find_conserved_markers <- function(sobj_in, ident_1 = NULL, ident_2 = NULL,
         ident_1 %>%
           map_dfr(~ .find_conserved_markers(dat, .x)) %>%
           mutate(!!sym(group_var) := .x, .before = ident_1)
-      })
+      }, .options = furrr_options(seed = TRUE))
     
     future::plan("sequential")
     
