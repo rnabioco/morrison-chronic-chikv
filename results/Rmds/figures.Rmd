@@ -1582,10 +1582,6 @@ so_mac %>%
 
 Bargraphs showing top GSEA disease ontology terms for genes upregulated when
 comparing all mock vs CHIKV-infected cells.
-Differentially expressed genes were filtered for those with an absolute log2
-fold change >0.25 for all replicates and
-a maximum adjusted p-value <0.05 (Benjamini-Hochberg),
-mitochondrial genes were removed.
 GSEA terms were filtered to remove broad terms that include >250 genes.
 
 ```{r "GSEA bargraph", fig.width = 7, fig.height = 4}
