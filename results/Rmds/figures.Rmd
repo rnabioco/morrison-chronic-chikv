@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options:
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 <br>
@@ -1163,6 +1163,8 @@ rev(feats) %>%
   })
 ```
 
+
+
 ## CHIKV+ cells
 
 UMAP projections show CHIKV+ cells (left) and CHIKV-high clusters
@@ -1571,6 +1573,91 @@ so_mac %>%
     align = "vh",
     axis  = "trbl",
     ncol  = 2
+  )
+```
+
+<br>
+
+<br>
+
+Bargraphs showing top GSEA disease ontology terms for genes upregulated when
+comparing all mock vs CHIKV-infected cells.
+Differentially expressed genes were filtered for those with an absolute log2
+fold change >0.25 for all replicates and
+a maximum adjusted p-value <0.05 (Benjamini-Hochberg),
+mitochondrial genes were removed.
+GSEA terms were filtered to remove broad terms that include >250 genes.
+
+```{r "GSEA bargraph", fig.width = 7, fig.height = 4}
+# Bargraph showing top terms
+# Filter to remove broad gene sets
+n_terms <- 6
+
+top_gsea <- chikv_gsea@result %>%
+  filter(setSize <= 250) %>%
+  arrange(p.adjust) %>%
+  head(n_terms) %>%
+  mutate(Description = fct_inorder(Description)) %>%
+  arrange(desc(Description)) %>%  # reverse axis order so top shown first
+  mutate(Description = fct_inorder(Description))
+  
+top_gsea %>%
+  ggplot(aes(Description, -log10(p.adjust))) +
+  geom_col(fill = "#6A51A3", alpha = 0.7) +
+  labs(y = "-log10(p-value)") +
+  scale_y_continuous(expand = expansion(c(0.02, 0.05))) +
+  coord_flip() +
+  djvdj_theme() +
+  theme(
+    aspect.ratio = 0.5,
+    panel.border = element_blank(),
+    axis.line.x  = element_line(size = 0.5, color = "grey85"),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y  = element_text(size = 20, hjust = 1, color = "black"),
+    axis.text.x  = element_text(size = 16, hjust = 1, color = "black"),
+    axis.title.x = element_text(size = 20)
+  )
+```
+
+Enrichment is shown for select top GSEA terms
+
+```{r "GSEA examples", fig.width = 10, fig.height = 5}
+# Plot example terms
+terms <- c(
+  levels(top_gsea$Description),
+  "rheumatic disease",
+  "rheumatoid arthritis",
+  "bone inflammation disease"
+) %>%
+  unique()
+
+gsea_terms <- chikv_gsea@result %>%
+  dplyr::filter(Description %in% terms)
+
+gsea_terms <- set_names(gsea_terms$ID, gsea_terms$Description)
+gsea_terms <- gsea_terms[terms]
+
+gsea_terms %>%
+  imap(~ {
+    chikv_gsea %>%
+      gseaplot(
+        .x,
+        by = "runningScore",
+        color.line = "#0072B2"
+      ) +
+      labs(subtitle = .y, x = "Gene rank") +
+      theme_cowplot() +
+      djvdj_theme() +
+      theme(
+        aspect.ratio = 0.65,
+        plot.subtitle = element_text(face = "plain", size = 15),
+        axis.title = element_text(size = 10)
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    nrow = 2
   )
 ```
 
