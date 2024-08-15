@@ -59,7 +59,7 @@ knitr::opts_chunk$set(
   dpi     = 300
 )
 
-options(future.globals.maxSize = 1 * 1024^3)
+options(future.globals.maxSize = 5.5 * 1024^3)
 
 knitr::knit(here::here("src/setup.Rmd"), output = "")
 
@@ -102,8 +102,134 @@ so_mac <- so_mac %>%
   )
 ```
 
+```{r "chikv markers"}
+# Identify mock vs CHIKV DEGs for all cells
+# significant genes have adjusted p-value < 0.05 and
+# abs log2 fold change > 0.25 for all reps
+file_nm <- here(dirs$table_dir, "chikv_markers")
+
+Idents(so) <- so$treatment
+
+chikv_degs <- so %>%
+  find_conserved_markers(
+    ident_1    = treats[2],
+    ident_2    = treats[1],
+    rep_var    = "rep",
+    group_var  = NULL,
+    
+    p_max        = 0.05,
+    fc_min       = 0.25,
+    p_adj_method = "BH",
+    n_reps       = 3,
+    
+    filter_sig = FALSE,
+    file_path  = str_c(file_nm, ".tsv.gz"),
+    n_threads  = 1
+  )
+
+# Save significant markers as xlsx file
+info <- "
+  Markers were identified for mock- vs CHIKV-infected mice for all cells.
+  Genes were filtered for those with an absolute log2 fold change >0.25 for all
+  replicates and a maximum adjusted p-value <0.05 (Benjamini-Hochberg).
+  Mitochondrial genes were removed.
+"
+
+chikv_sig <- chikv_degs %>%
+  filter(significant & !grepl("^mt-", gene)) %>%
+  arrange(max_p_adj)
+
+chikv_sig %>%
+  dplyr::select(-any_of(exclude_clmns)) %>%
+  write_xlsx(
+    info      = info,
+    tab_var   = "direction",
+    file_path = str_c(file_nm, ".xlsx")
+  )
+```
+
+```{r "chikv gsea"}
+# all macrophages mock vs CHIKV-infected DEGs
+# GSEA analysis using DOSE database
+# need to fetch entrez gene IDs for human homologs
+# exclude genes that have multiple human or mouse IDs
+gsea_degs <- chikv_degs %>%
+  inner_join(hlogs, by = c(gene = "gene_mm")) %>%
+  distinct(gene, gene_hs, entrez_hs, min_abs_fc) %>%
+  
+  filter(if_all(
+    -min_abs_fc,
+    ~ !duplicated(.x) & !duplicated(.x, fromLast = TRUE)
+  )) %>%
+  arrange(desc(min_abs_fc))
+
+# Run GSEA
+gsea_file <- here(dirs$table_dir, "chikv_gsea.qs")
+
+if (!file.exists(gsea_file)) {
+  set.seed(42)
+  
+  gsea_res <- set_names(gsea_degs$min_abs_fc, gsea_degs$entrez_hs)
+  
+  chikv_gsea <- gsea_res %>%
+    gseDO(eps = 1e-100) %>%
+    setReadable("org.Hs.eg.db", "ENTREZID")
+  
+  chikv_gsea %>%
+    qsave(gsea_file)
+}
+
+chikv_gsea <- qread(gsea_file)
+```
+
+```{r "cell type chikv markers"}
+# Identify mock vs CHIKV DEGs for cell types
+# significant genes have adjusted p-value < 0.05 and
+# abs log2 fold change > 0.25 for all reps
+file_nm <- here(dirs$table_dir, "celltype_chikv_markers")
+
+Idents(so) <- so$treatment
+
+type_chikv_degs <- so %>%
+  find_conserved_markers(
+    ident_1    = treats[2],
+    ident_2    = treats[1],
+    rep_var    = "rep",
+    group_var  = "cell_type",
+    
+    p_max        = 0.05,
+    fc_min       = 0.25,
+    p_adj_method = "BH",
+    n_reps       = 3,
+    
+    filter_sig = FALSE,
+    file_path  = str_c(file_nm, ".tsv.gz"),
+    n_threads  = 1
+  )
+
+# Save significant markers as xlsx file
+info <- "
+  Markers were identified for mock- vs CHIKV-infected mice for each cell type.
+  Genes were filtered for those with an absolute log2 fold change >0.25 for all
+  replicates and a maximum adjusted p-value <0.05 (Benjamini-Hochberg).
+  Mitochondrial genes were removed.
+"
+
+type_chikv_sig <- type_chikv_degs %>%
+  filter(significant & !grepl("^mt-", gene)) %>%
+  arrange(max_p_adj)
+
+type_chikv_sig %>%
+  dplyr::select(-any_of(exclude_clmns)) %>%
+  write_xlsx(
+    info      = info,
+    tab_var   = c("cell_type", "direction"),
+    file_path = str_c(file_nm, ".xlsx")
+  )
+```
+
 ```{r "mac type markers"}
-# T cell subset markers
+# Macrophage subset markers
 # using all T cells identify markers for each subset
 file_nm <- here(dirs$table_dir, "mac_type_markers")
 
@@ -133,11 +259,11 @@ info <- "
   replicates and a maximum adjusted p-value <0.05 (Benjamini-Hochberg).
 "
 
-mac_type_degs_sig <- mac_type_degs %>%
+mac_type_sig <- mac_type_degs %>%
   filter(significant & direction == "up") %>%
   arrange(max_p_adj)
 
-mac_type_degs_sig %>%
+mac_type_sig %>%
   dplyr::select(-any_of(exclude_clmns)) %>%
   write_xlsx(
     info      = info,
@@ -155,7 +281,7 @@ file_nm <- here(dirs$table_dir, "mac_chikv_markers")
 
 Idents(so_mac) <- so_mac$treatment
 
-mac_degs <- so_mac %>%
+mac_chikv_degs <- so_mac %>%
   find_conserved_markers(
     ident_1    = treats[2],
     ident_2    = treats[1],
@@ -179,11 +305,11 @@ info <- "
   Mitochondrial genes were removed.
 "
 
-mac_degs_sig <- mac_degs %>%
+mac_chikv_sig <- mac_chikv_degs %>%
   filter(significant & !grepl("^mt-", gene)) %>%
   arrange(max_p_adj)
 
-mac_degs_sig %>%
+mac_chikv_sig %>%
   dplyr::select(-any_of(exclude_clmns)) %>%
   write_xlsx(
     info      = info,
@@ -192,12 +318,12 @@ mac_degs_sig %>%
   )
 ```
 
-```{r "mac gsea"}
+```{r "mac chikv gsea"}
 # all macrophages mock vs CHIKV-infected DEGs
 # GSEA analysis using DOSE database
 # need to fetch entrez gene IDs for human homologs
 # exclude genes that have multiple human or mouse IDs
-gsea_degs <- mac_degs %>%
+gsea_degs <- mac_chikv_degs %>%
   inner_join(hlogs, by = c(gene = "gene_mm")) %>%
   distinct(gene, gene_hs, entrez_hs, min_abs_fc) %>%
   
@@ -222,7 +348,7 @@ if (!file.exists(gsea_file)) {
     qsave(gsea_file)
 }
 
-chikv_gsea <- qread(gsea_file)
+mac_chikv_gsea <- qread(gsea_file)
 ```
 
 ```{r "mac type chikv markers"}
@@ -233,7 +359,7 @@ file_nm <- here(dirs$table_dir, "mac_type_chikv_markers")
 
 Idents(so_mac) <- so_mac$treatment
 
-mac_type_degs <- so_mac %>%
+mac_type_chikv_degs <- so_mac %>%
   find_conserved_markers(
     ident_1    = treats[2],
     ident_2    = treats[1],
@@ -259,11 +385,11 @@ info <- "
   Mitochondrial genes were removed.
 "
 
-mac_type_degs_sig <- mac_type_degs %>%
+mac_type_chikv_sig <- mac_type_chikv_degs %>%
   filter(significant & !grepl("^mt-", gene)) %>%
   arrange(max_p_adj)
 
-mac_type_degs_sig %>%
+mac_type_chikv_sig %>%
   dplyr::select(-any_of(exclude_clmns)) %>%
   write_xlsx(
     info      = info,
@@ -303,11 +429,11 @@ info <- "
   replicates and a maximum adjusted p-value <0.05 (Benjamini-Hochberg).
 "
 
-t_type_degs_sig <- t_type_degs %>%
+t_type_sig <- t_type_degs %>%
   filter(significant & direction == "up") %>%
   arrange(max_p_adj)
 
-t_type_degs_sig %>%
+t_type_sig %>%
   dplyr::select(-any_of(exclude_clmns)) %>%
   write_xlsx(
     info      = info,
@@ -327,7 +453,7 @@ if (!file.exists(go_file)) {
     sort(decreasing = TRUE) %>%
     head(5000)
   
-  t_type_go <- t_type_degs_sig %>%
+  t_type_go <- t_type_sig %>%
     split(.$ident_1) %>%
     map(pull, gene) %>%
     gost(
@@ -378,11 +504,11 @@ info <- "
   Mitochondrial genes were removed.
 "
 
-t_degs_sig_1 <- t_degs_1 %>%
+t_sig_1 <- t_degs_1 %>%
   filter(significant & !grepl("^mt-", gene)) %>%
   arrange(max_p_adj)
 
-t_degs_sig_1 %>%
+t_sig_1 %>%
   dplyr::select(-any_of(exclude_clmns)) %>%
   write_xlsx(
     info      = info,
@@ -435,7 +561,7 @@ info <- "
 
 t_degs_3 <- read_tsv(str_c(file_nm, ".tsv.gz"))
 
-t_degs_sig_3 <- t_degs_3 %>%
+t_sig_3 <- t_degs_3 %>%
   filter(
     p_val_adj       < 0.05,
     abs(avg_log2FC) > 0.25,
@@ -445,7 +571,7 @@ t_degs_sig_3 <- t_degs_3 %>%
   ) %>%
   arrange(p_val_adj)
 
-t_degs_sig_3 %>%
+t_sig_3 %>%
   dplyr::select(-any_of(exclude_clmns)) %>%
   write_xlsx(
     info      = info,
@@ -454,7 +580,7 @@ t_degs_sig_3 %>%
   )
 
 # Only use upregulated genes for plots
-t_degs_sig_3 <- t_degs_sig_3 %>%
+t_sig_3 <- t_sig_3 %>%
   filter(direction == "up")
 ```
 
@@ -501,7 +627,7 @@ info <- "
 
 t_degs_2 <- read_tsv(str_c(file_nm, ".tsv.gz"))
 
-t_degs_sig_2 <- t_degs_2 %>%
+t_sig_2 <- t_degs_2 %>%
   filter(
     p_val_adj       < 0.05,
     abs(avg_log2FC) > 0.25,
@@ -511,7 +637,7 @@ t_degs_sig_2 <- t_degs_2 %>%
   ) %>%
   arrange(p_val_adj)
 
-t_degs_sig_2 %>%
+t_sig_2 %>%
   dplyr::select(-any_of(exclude_clmns)) %>%
   write_xlsx(
     info      = info,
@@ -519,7 +645,7 @@ t_degs_sig_2 %>%
     file_path = str_c(file_nm, ".xlsx")
   )
 
-t_degs_sig_2 <- t_degs_sig_2 %>%
+t_sig_2 <- t_sig_2 %>%
   filter(direction == "up")
 ```
 
@@ -726,6 +852,121 @@ dat %>%
 
 <br>
 
+## Differential expression
+
+The number of differentially expressed genes identified for mock vs CHIKV is
+shown below for each cell type.
+
+```{r "DEGs bargraph", fig.width = 5, fig.height = 3, out.width = "%40"}
+type_chikv_sig %>%
+  mutate(
+    cell_type = fct_infreq(cell_type),
+    direction = fct_relevel(direction, c("up", "down"))
+  ) %>%
+  ggplot(aes(cell_type, fill = direction)) +
+  geom_bar(color = "black", width = 0.75, linewidth = 0.35) +
+  scale_fill_manual(values = c(up = sam_cols[[3]], down = sam_cols[[4]])) +
+  labs(y = "# of DEGs") +
+  base_theme +
+  theme(
+    aspect.ratio         = 0.6,
+    legend.position      = c(0.5, 0.8),
+    legend.title         = element_blank(),
+    legend.direction     = "horizontal",
+    legend.justification = "center",
+    axis.line.x          = element_line(color = "black"),
+    axis.line.y          = element_line(color = "black"),
+    axis.ticks.x         = element_line(color = "black"),
+    axis.ticks.y         = element_line(color = "black"),
+    axis.title.x         = element_blank(),
+    axis.text.x          = element_text(angle = 45, hjust = 1)
+  )
+```
+
+<br>
+
+<br>
+
+Bargraphs showing top GSEA disease ontology terms for genes upregulated when
+comparing all mock vs all CHIKV-infected cells.
+GSEA terms were filtered to remove broad terms that include >250 genes.
+
+```{r "GSEA bargraph", fig.width = 8, fig.height = 4, out.width = "60%"}
+# Bargraph showing top terms
+# Filter to remove broad gene sets
+n_terms <- 6
+
+top_gsea <- chikv_gsea@result %>%
+  filter(setSize <= 250) %>%
+  arrange(p.adjust) %>%
+  head(n_terms) %>%
+  mutate(Description = fct_inorder(Description)) %>%
+  arrange(desc(Description)) %>%  # reverse axis order so top shown first
+  mutate(Description = fct_inorder(Description))
+  
+top_gsea %>%
+  ggplot(aes(Description, -log10(p.adjust))) +
+  geom_col(fill = "#6A51A3", alpha = 0.7) +
+  labs(y = "-log10(p-value)") +
+  scale_y_continuous(expand = expansion(c(0.02, 0.05))) +
+  coord_flip() +
+  djvdj_theme() +
+  theme(
+    aspect.ratio = 0.5,
+    panel.border = element_blank(),
+    axis.line.x  = element_line(size = 0.5, color = "grey85"),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y  = element_text(size = 20, hjust = 1, color = "black"),
+    axis.text.x  = element_text(size = 16, hjust = 1, color = "black"),
+    axis.title.x = element_text(size = 20)
+  )
+```
+
+Enrichment is shown for select top GSEA terms
+
+```{r "GSEA examples", fig.width = 10, fig.height = 5}
+# Plot example terms
+terms <- c(
+  levels(top_gsea$Description),
+  "rheumatic disease",
+  "rheumatoid arthritis"
+) %>%
+  unique()
+
+gsea_terms <- chikv_gsea@result %>%
+  dplyr::filter(Description %in% terms)
+
+gsea_terms <- set_names(gsea_terms$ID, gsea_terms$Description)
+gsea_terms <- gsea_terms[terms]
+
+gsea_terms %>%
+  imap(~ {
+    chikv_gsea %>%
+      gseaplot(
+        .x,
+        by = "runningScore",
+        color.line = "#0072B2"
+      ) +
+      labs(subtitle = .y, x = "Gene rank") +
+      theme_cowplot() +
+      djvdj_theme() +
+      theme(
+        aspect.ratio = 0.65,
+        plot.subtitle = element_text(face = "plain", size = 15),
+        axis.title = element_text(size = 10)
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    nrow = 2
+  )
+```
+
+<br>
+
+<br>
+
 ## Ifng expression
 
 Ifng expression is shown below for each cell type.
@@ -761,7 +1002,7 @@ lvls <- ifng_dat %>%
 clrs <- type_cols[as.character(unique(lvls$cell_type))]
   
 ifng_dat %>%
-  create_mac_type_plots(
+  create_celltype_plots(
     x          = "UMAP_1",
     y          = "UMAP_2",
     gns        = "Ifng",
@@ -786,7 +1027,7 @@ clrs[c("CD4 Teff", "other T cells")] <- type_cols["T cells"]
 clrs <- clrs[as.character(unique(lvls$new_type))]
 
 ifng_dat %>%
-  create_mac_type_plots(
+  create_celltype_plots(
     x          = "UMAP_1",
     y          = "UMAP_2",
     gns        = "Ifng",
@@ -1555,16 +1796,16 @@ so_mac@meta.data %>%
 ## Differential expression
 
 Examples of genes differentially expressed in mock- vs CHIKV-infected mice are
-shown below
+shown below for macrophages.
 
 ```{r, fig.width = 20, fig.height = 11}
 gns <- c("Tnf", "Il1b", "Nlrp3", "H2-Eb1", "Slamf7")
 
 # Create plots for example genes
 so_mac %>%
-  create_mac_type_plots(
+  create_celltype_plots(
     gns     = gns,
-    p_data  = mac_type_degs_sig,
+    p_data  = mac_type_chikv_sig,
     p_clmn  = "max_p_adj",
     bx_clrs = mac_typ_cols_2
   ) %>%
@@ -1581,15 +1822,15 @@ so_mac %>%
 <br>
 
 Bargraphs showing top GSEA disease ontology terms for genes upregulated when
-comparing all mock vs CHIKV-infected cells.
+comparing all mock vs CHIKV-infected macrophages.
 GSEA terms were filtered to remove broad terms that include >250 genes.
 
-```{r "GSEA bargraph", fig.width = 7, fig.height = 4}
+```{r "mac GSEA bargraph", fig.width = 7, fig.height = 4, out.width = "50%"}
 # Bargraph showing top terms
 # Filter to remove broad gene sets
 n_terms <- 6
 
-top_gsea <- chikv_gsea@result %>%
+top_gsea <- mac_chikv_gsea@result %>%
   filter(setSize <= 250) %>%
   arrange(p.adjust) %>%
   head(n_terms) %>%
@@ -1618,7 +1859,7 @@ top_gsea %>%
 
 Enrichment is shown for select top GSEA terms
 
-```{r "GSEA examples", fig.width = 10, fig.height = 5}
+```{r "mac GSEA examples", fig.width = 10, fig.height = 5}
 # Plot example terms
 terms <- c(
   levels(top_gsea$Description),
@@ -1628,7 +1869,7 @@ terms <- c(
 ) %>%
   unique()
 
-gsea_terms <- chikv_gsea@result %>%
+gsea_terms <- mac_chikv_gsea@result %>%
   dplyr::filter(Description %in% terms)
 
 gsea_terms <- set_names(gsea_terms$ID, gsea_terms$Description)
@@ -1636,7 +1877,7 @@ gsea_terms <- gsea_terms[terms]
 
 gsea_terms %>%
   imap(~ {
-    chikv_gsea %>%
+    mac_chikv_gsea %>%
       gseaplot(
         .x,
         by = "runningScore",
@@ -1671,7 +1912,7 @@ log2 fold change >0.25 for all replicates.
 n_gns    <- 50
 terms_re <- "arthritis"
 
-gsea_gns <- chikv_gsea@result %>%
+gsea_gns <- mac_chikv_gsea@result %>%
   dplyr::filter(
     grepl(terms_re, Description),
     !grepl("cancer|ischemic", Description)
@@ -1688,7 +1929,7 @@ gsea_gns <- hlogs %>%
 
 # Genes to plot
 # plot top 60 genes
-top_gsea_gns <- mac_degs_sig %>%
+top_gsea_gns <- mac_chikv_sig %>%
   dplyr::filter(gene %in% gsea_gns) %>%
   arrange(desc(min_abs_fc)) %>%
   pull(gene) %>%
@@ -1748,9 +1989,9 @@ names(u_clrs) <- treats
 
 # Create plots for example genes
 gn_boxes <- so_mac %>%
-  create_mac_type_plots(
+  create_celltype_plots(
     gns    = gns,
-    p_data = mac_type_degs_sig,
+    p_data = mac_type_chikv_sig,
     p_clmn = "max_p_adj"
   )
 
@@ -1839,10 +2080,10 @@ u_clrs[1] <- lighten("#009E73", 0.2)
 
 names(u_clrs) <- treats
 
-# Order GO genes based on fold change
+# Only plot genes that are upregulated in CHIKV for bulk macrophages
 goi_lst <- goi_lst %>%
   map(~ {
-    gns <- mac_degs_sig %>%
+    gns <- mac_chikv_sig %>%
       filter(gene %in% .x) %>%
       arrange(desc(min_abs_fc)) %>%
       pull(gene)
@@ -1852,9 +2093,9 @@ goi_lst <- goi_lst %>%
 
 # Create gene plots
 gn_boxes <- so_mac %>%
-  create_mac_type_plots(
+  create_celltype_plots(
     gns = goi_lst$`Ag presentation`,
-    p_data = mac_type_degs_sig,
+    p_data = mac_type_chikv_sig,
     p_clmn  = "max_p_adj"
   )
   
@@ -1885,11 +2126,11 @@ Subsets with overlapping genes are connected by a black line,
 bars show the number of genes.
 A single point (not connected by a black line) shows the number of unique genes
 for the subset.
-The number of shared macrophage subsets is shown in parenthesis for each genes.
+The number of shared macrophage subsets is shown in parenthesis for each gene.
 
 ```{r "DEG upset plot", fig.width = 10, fig.height = 4}
 # Calculate overlap between cell types
-degs_dat <- mac_type_degs_sig %>%
+degs_dat <- mac_type_chikv_sig %>%
   group_by(direction, mac_type) %>%
   mutate(type_lab = str_c(mac_type, " (", label_comma()(n()), ")")) %>%
   group_by(gene, direction) %>%
@@ -1972,7 +2213,7 @@ degs_dat %>%
 # sort by number of cell types sharing gene then min_abs_fc
 n_gns <- 20
 
-heats <- mac_type_degs_sig %>%
+heats <- mac_type_chikv_sig %>%
   split(.$mac_type) %>%
   imap(~ {
     typ <- .y
@@ -2290,10 +2531,10 @@ names(u_clrs) <- treats
 
 # Create gene plots
 gn_boxes <- so_mac %>%
-  create_mac_type_plots(
+  create_celltype_plots(
     gns     = c(lum_genes, "Fcgr1"),
     u_clrs  = c("#56B4E9", "white", "#6A51A3"),
-    p_data  = mac_type_degs_sig,
+    p_data  = mac_type_chikv_sig,
     p_clmn  = "max_p_adj",
     u_theme = theme(
       legend.position   = "left",
@@ -2414,66 +2655,15 @@ key_gns <- c(
 
 t_plts <- key_gns %>%
   map(~ {
-    u <- so_t %>%
-      mutate_meta(
-        mutate,
-        treatment = fct_relevel(treatment, treats)
-      ) %>%
-      plot_scatter(
-        .x,
-        "hUMAP_1", "hUMAP_2",
-        group_col   = "treatment",
-        size        = 1,
-        outline     = TRUE,
-        plot_colors = c("lightblue", "white", "#D7301F")
-      ) +
-      labs(title = .x) +
-      umap_theme_2 +
-      theme(
-        plot.margin = margin(0, 15, 0, 15),
-        plot.title  = element_text(size = 24, hjust = 0.5)
-      )
-    
-    bx <- so_t %>%
-      FetchData(c("treatment", "t_type", .x)) %>%
-      mutate(treatment = fct_relevel(treatment, treats)) %>%
-      
-      plot_violin(
-        .x,
-        "t_type",
-        group_col    = "treatment",
-        n_label      = "none",
-        method       = "boxplot",
-        outlier.size = 0.5,
-        plot_colors  = t_clrs,
-        plot_lvls    = names(t_clrs),
-        color        = "black",
-        alpha        = 1,
-        width        = 0.6
-      ) +
-      
-      # ggplot(aes(t_type, !!sym(.x), fill = t_type)) +
-      # geom_boxplot(outlier.size = 0.5) +
-      # facet_wrap(~ treatment) +
-      # scale_fill_manual(values = t_clrs) +
-      base_theme +
-      theme(
-        legend.position = "none",
-        plot.margin     = margin(0, 15, 0, 15),
-        panel.border    = element_rect(color = ln_col, linewidth = ln_pt),
-        strip.text      = element_blank(),
-        axis.line.x     = element_blank(),
-        axis.line.y     = element_blank(),
-        axis.text.x     = element_text(angle = 45, hjust = 1),
-        axis.title.x    = element_blank()
-      )
-    
-    plot_grid(
-      u, bx,
-      ncol  = 1,
-      align = "v",
-      axis  = "rl",
-      rel_heights = c(1, 0.55)
+    create_celltype_plots_2(
+      so_in    = so_t,
+      gn       = .x,
+      bx_clmn  = "t_type",
+      grp_clmn = "treatment",
+      grp_lvls = treats,
+      pt_size  = 1,
+      bx_clrs  = t_clrs,
+      ttl      = .x
     )
   })
 
@@ -2495,12 +2685,27 @@ Ifng expression is shown below for each T cell subset.
 
 ```{r "Ifng expression", fig.width = 10, fig.height = 3.5, out.width = "65%"}
 so_t %>%
-  create_mac_type_plots(
-    gns     = "Ifng",
-    bx_clmn = "t_type",
-    u_clrs  = "#035B8F",
-    bx_clrs = t_clrs,
-    pt_size = 1
+  create_celltype_plots(
+    gn       = "Ifng",
+    bx_clmn  = "t_type",
+    grp_clmn = "treatment",
+    grp_lvls = treats,
+    u_clrs   = c("#FFFFFF", "#035B8F"),
+    bx_clrs  = t_clrs,
+    pt_size  = 1
+  )
+```
+
+```{r "Ifng expression 2", fig.width = 5.75, fig.height = 3.75, out.width = "65%"}
+so_t %>%
+  create_celltype_plots_2(
+    gn       = "Ifng",
+    bx_clmn  = "t_type",
+    grp_clmn = "treatment",
+    grp_lvls = treats,
+    u_clrs   = c("#FFFFFF", "#035B8F"),
+    bx_clrs  = t_clrs,
+    pt_size  = 1
   )
 ```
 
@@ -2522,7 +2727,7 @@ adjusted p-value <0.05.
 # Select genes to plot
 n_gns <- 60
 
-gns <- t_degs_sig_2 %>%
+gns <- t_sig_2 %>%
   arrange(desc(avg_log2FC))
 
 gns_key <- gns %>%
@@ -2814,7 +3019,7 @@ p-value <0.05.
 # Select genes to plot
 n_gns <- 60
 
-gns <- t_degs_sig_3 %>%
+gns <- t_sig_3 %>%
   arrange(desc(avg_log2FC)) %>%
   pull(gene) %>%
   unique()
@@ -2838,11 +3043,11 @@ plt_dat <- so_t %>%
 # Create heatmaps
 t_typs %>%
   walk(~ {
-    if (!.x %in% t_degs_sig_3$t_type) return(NULL)
+    if (!.x %in% t_sig_3$t_type) return(NULL)
     
     cat("\n\n###", .x, "\n\n")
   
-    gns <- t_degs_sig_3 %>%
+    gns <- t_sig_3 %>%
       filter(t_type == .x) %>%
       pull(gene) %>%
       head(n_gns)
@@ -2900,7 +3105,7 @@ goi_lst <- goi_lst %>%
 
 # Create gene plots
 # gn_boxes <- goi_lst$`Ag presentation` %>%
-gn_boxes <- t_degs_sig_1 %>%
+gn_boxes <- t_sig_1 %>%
   filter(direction == "up") %>%
   pull(gene) %>%
   
@@ -2972,3 +3177,41 @@ sessionInfo()
 ```
 
 
+
+```{r "TENT5A EXPRESSION", fig.width = 8, fig.height = 10, eval = FALSE}
+# n labels
+gn <- "Tent5a"
+
+plt_dat <- so %>%
+  FetchData(c("cell_type", "chikv_grp", gn)) %>%
+  mutate(
+    chikv_grp = fct_relevel(chikv_grp, chikv_grps),
+    type_grp  = str_c(cell_type, "-", chikv_grp),
+  ) %>%
+  arrange(chikv_grp) %>%
+  mutate(type_grp = fct_inorder(type_grp))
+
+lab_dat <- plt_dat %>%
+  group_by(chikv_grp, type_grp, fill = chikv_grp) %>%
+  summarize(n = n(), .groups = "drop") %>%
+  mutate(lab = str_c(chikv_grp, "\nn = ", label_comma()(n)))
+
+lab_dat <- set_names(lab_dat$lab, lab_dat$type_grp)
+
+# boxplots
+plt_dat %>%
+  ggplot(aes(type_grp, Tent5a, fill = chikv_grp)) +
+  geom_boxplot(outlier.size = 0.25) +
+  facet_wrap(~ cell_type, scales = "free_x") +
+  scale_fill_manual(values = grp_cols) +
+  scale_x_discrete(labels = lab_dat) +
+  labs(y = str_c(gn, " expression")) +
+  base_theme +
+  theme(
+    aspect.ratio    = 1.5,
+    panel.border    = element_rect(color = ln_col, linewidth = ln_pt),
+    legend.position = "none",
+    axis.title.x    = element_blank()
+  )
+
+```

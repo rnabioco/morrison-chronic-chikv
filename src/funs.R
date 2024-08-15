@@ -2545,8 +2545,9 @@ create_mac_plots <- function(so_in = so_mac, gns, u_clrs = "#6A51A3",
   res
 }
 
-create_mac_type_plots <- function(so_in, gns, x = "hUMAP_1", y = "hUMAP_2",
-                                  bx_clmn = "mac_type",
+create_celltype_plots <- function(so_in, gns, x = "hUMAP_1", y = "hUMAP_2",
+                                  bx_clmn = "mac_type", grp_clmn = "treatment",
+                                  grp_lvls = treats,
                                   p_data = NULL, p_clmn = "p.value",
                                   pt_size = 0.001,
                                   u_clrs = "#6A51A3", bx_clrs = mac_typ_cols_2,
@@ -2555,9 +2556,6 @@ create_mac_type_plots <- function(so_in, gns, x = "hUMAP_1", y = "hUMAP_2",
   ttl_sz   <- 20
   txt_sz   <- 10
   txt_sz_2 <- 14
-  
-  grp_clmn <- "treatment"
-  grp_lvls <- treats
   
   if (length(u_clrs) == 1) u_clrs <- c("white", u_clrs)
   
@@ -2653,6 +2651,76 @@ create_mac_type_plots <- function(so_in, gns, x = "hUMAP_1", y = "hUMAP_2",
     })
   
   if (length(res) == 1) res <- res[[1]]
+  
+  res
+}
+
+create_celltype_plots_2 <- function(so_in, gn, x = "hUMAP_1", y = "hUMAP_2",
+                                    bx_clmn, grp_clmn = "treatment",
+                                    grp_lvls = NULL, pt_size = 1,
+                                    u_clrs = c("lightblue", "white", "#D7301F"),
+                                    bx_clrs, ttl = NULL
+                                    ) {
+
+  u <- so_in %>%
+    mutate_meta(
+      mutate,
+      !!sym(grp_clmn) := fct_relevel(!!sym(grp_clmn), grp_lvls)
+    ) %>%
+    plot_scatter(
+      gn, x, y,
+      group_col   = grp_clmn,
+      size        = pt_size,
+      outline     = TRUE,
+      plot_colors = u_clrs
+    ) +
+    labs(title = ttl) +
+    guides(fill = guide_colorbar(ticks = FALSE)) +
+    umap_theme_2 +
+    theme(
+      plot.margin = margin(0, 15, 0, 15),
+      plot.title  = element_text(size = 24, hjust = 0.5),
+      legend.key.height = unit(26, "pt"),
+      legend.key.width  = unit(7, "pt")
+    )
+  
+  bx <- so_in %>%
+    FetchData(c(grp_clmn, bx_clmn, gn)) %>%
+    mutate(!!sym(grp_clmn) := fct_relevel(!!sym(grp_clmn), grp_lvls)) %>%
+    
+    plot_violin(
+      gn, bx_clmn,
+      group_col    = grp_clmn,
+      n_label      = "none",
+      method       = "boxplot",
+      outlier.size = 0.5,
+      plot_colors  = bx_clrs,
+      plot_lvls    = names(bx_clrs),
+      color        = "black",
+      alpha        = 1,
+      width        = 0.6
+    ) +
+    
+    base_theme +
+    theme(
+      legend.position = "none",
+      plot.margin     = margin(0, 15, 0, 15),
+      panel.border    = element_rect(color = ln_col, linewidth = ln_pt),
+      strip.text      = element_blank(),
+      axis.line.x     = element_blank(),
+      axis.line.y     = element_blank(),
+      axis.text.x     = element_text(angle = 45, hjust = 1),
+      axis.title.x    = element_blank()
+    )
+  
+  # Create final figure
+  res <- plot_grid(
+    u, bx,
+    ncol  = 1,
+    align = "v",
+    axis  = "rl",
+    rel_heights = c(1, 0.55)
+  )
   
   res
 }
