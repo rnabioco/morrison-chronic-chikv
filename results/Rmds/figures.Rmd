@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options:
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 <br>
@@ -149,7 +149,7 @@ chikv_sig %>%
 ```
 
 ```{r "chikv gsea"}
-# all macrophages mock vs CHIKV-infected DEGs
+# all mock vs CHIKV-infected DEGs
 # GSEA analysis using DOSE database
 # need to fetch entrez gene IDs for human homologs
 # exclude genes that have multiple human or mouse IDs
@@ -2754,8 +2754,7 @@ plt_dat <- so_t %>%
   filter(name %in% gns_key[[cd4_8]]) %>%
   ungroup() %>%
   mutate(
-    treatment = fct_relevel(treatment, treats),
-    name = fct_relevel(name, gns)
+    treatment = fct_relevel(treatment, treats)
   )
 
 # Create heatmaps
@@ -2765,6 +2764,8 @@ t_heats <- plt_dat %>%
     asp_rat <- min(10, n_distinct(.x$name) / n_distinct(.x$rep))
     
     .x %>%
+      mutate(name = fct_relevel(name, rev(gns_key[[.y]]))) %>%
+      
       ggplot(aes(rep, name, fill = value)) +
       geom_tile() +
       facet_wrap(~ treatment, nrow = 1) +
