@@ -1400,22 +1400,42 @@ mac_typ_cols <- set_names(
 mac_typ_cols["infiltrating"] <- "#0072B2"
 
 # New labels for Mac subsets
-mac_lvls <- c(
-  "AQP1_interstitial",
-  "RELMa_interstitial",
-  "CX3CR1_lining",
-  "infiltrating",
-  "unassigned"
+mac_strip_labs <- c(
+  AQP1_interstitial  = "'AQP1'^'+'",
+  RELMa_interstitial = "'RELM'*alpha^'+'",
+  CX3CR1_lining      = "Lining",
+  infiltrating       = "Infiltrating",
+  unassigned         = "unassigned"
 )
 
-mac_typ_labs <- names(mac_typ_cols)
-  # str_replace("_interstitial", "+") %>%
-  # str_replace("infiltrating", "Inflammatory") %>%
-  # str_replace(".+_lining", "Lining")
+mac_x_labs <- c(
+  AQP1_interstitial  = expression(AQP1^'+'),
+  RELMa_interstitial = expression(RELM*alpha^'+'),
+  CX3CR1_lining      = "Lining",
+  infiltrating       = "Infiltrating",
+  unassigned         = "unassigned"
+)
 
-mac_typ_labs <- set_names(mac_typ_labs, names(mac_typ_cols))
+mac_lvls <- names(mac_strip_labs)
 
-names(mac_typ_cols) <- mac_typ_labs[names(mac_typ_cols)]
+simplify_sams <- function(x, pattern) {
+  function(x) {
+    treat <- x %>%
+      str_extract(pattern)
+    
+    treat <- treat %>%
+      str_extract("^[a-zA-Z]")
+    
+    rep <- x %>%
+      str_extract("[0-9]+$")
+    
+    str_c(treat, "-", rep)
+  }
+}
+
+simp_sam_labs <- simplify_sams(
+  pattern = str_c("^(", str_c(treats, collapse = "|"), ")")
+)
 
 mac_typ_cols_2 <- mac_typ_cols
 mac_typ_cols_2["unassigned"] <- "grey75"

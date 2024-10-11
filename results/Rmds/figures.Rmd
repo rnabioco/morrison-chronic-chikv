@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options:
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 <br>
@@ -649,18 +649,9 @@ t_sig_2 <- t_sig_2 %>%
   filter(direction == "up")
 ```
 
-# Summary
+# Figure 1
 
-* Adjusted layout for plots showing example genes for mock- vs
-  CHIKV-infected samples. These plots are now consistent for all macrophage and
-  T cell figures. Added p-values to each plot.
-* Generated tables showing DE genes that are unique and shared between
-  different macrophage subsets (shown [here](#upset-plots)). Updated filtering for differentially
-  expressed genes, and generated new tables.
-
-<br>
-
-<br>
+## 1C-D
 
 UMAP projections show sample groups (left), cell type annotations (middle),
 and CHIKV+ cells (right).
@@ -740,46 +731,6 @@ plot_grid(
 
 <br>
 
-<br>
-
-The fraction of cells passing QC filtering cutoffs is shown for each sample.
-
-```{r "QC stats", fig.height = 3, fig.width = 8, out.width = "50%"}
-# Set colors
-qc_stats <- unique(so_raw_df$qc_class)
-
-qc_clrs <- set_names(
-  palette_OkabeIto[seq_along(qc_stats)],
-  qc_stats
-)
-
-# Create bargraphs
-so_raw_df %>%
-  mutate(
-    treatment = fct_relevel(treatment, treats)
-  ) %>%
-  ggplot(aes(rep, fill = qc_class)) +
-  geom_bar() +
-  facet_wrap(~ treatment, ncol = 1, switch = "y") +
-  scale_fill_manual(values = qc_clrs) +
-  scale_y_continuous(expand = expansion(c(0, 0))) +
-  coord_flip() +
-  labs(y = "number of cells") +
-  base_theme +
-  theme(
-    aspect.ratio = 0.2,
-    legend.title = element_blank(),
-    axis.line.y  = element_blank(),
-    axis.ticks.y = element_blank(),
-    axis.title.y = element_blank(),
-    axis.text.y  = element_blank()
-  )
-```
-
-<br>
-
-<br>
-
 The fraction of cells identified for each cell type is shown below.
 
 ```{r "cell type bargraphs", fig.width = 5, fig.height = 4, out.width = "50%"}
@@ -811,7 +762,127 @@ so@meta.data %>%
 
 <br>
 
+## 1E
+
+The number of differentially expressed genes identified for mock vs CHIKV is
+shown below for each cell type.
+
+```{r "DEGs bargraph", fig.width = 5, fig.height = 3, out.width = "%40"}
+type_chikv_sig %>%
+  mutate(
+    cell_type = fct_infreq(cell_type),
+    direction = fct_relevel(direction, c("up", "down"))
+  ) %>%
+  ggplot(aes(cell_type, fill = direction)) +
+  geom_bar(color = "black", width = 0.75, linewidth = 0.35) +
+  scale_fill_manual(values = c(up = sam_cols[[3]], down = sam_cols[[4]])) +
+  labs(y = "# of DEGs") +
+  base_theme +
+  theme(
+    aspect.ratio         = 0.6,
+    legend.position      = c(0.5, 0.8),
+    legend.title         = element_blank(),
+    legend.direction     = "horizontal",
+    legend.justification = "center",
+    axis.line.x          = element_line(color = "black"),
+    axis.line.y          = element_line(color = "black"),
+    axis.ticks.x         = element_line(color = "black"),
+    axis.ticks.y         = element_line(color = "black"),
+    axis.title.x         = element_blank(),
+    axis.text.x          = element_text(angle = 45, hjust = 1)
+  )
+```
+
 <br>
+
+## 1F
+
+Bargraphs showing top GSEA disease ontology terms for genes upregulated when
+comparing all mock vs CHIKV-infected macrophages.
+GSEA terms were filtered to remove broad terms that include >250 genes.
+
+```{r "mac GSEA bargraph", fig.width = 7, fig.height = 4, out.width = "50%"}
+# Bargraph showing top terms
+# Filter to remove broad gene sets
+n_terms <- 6
+
+top_gsea <- mac_chikv_gsea@result %>%
+  filter(setSize <= 250) %>%
+  arrange(p.adjust) %>%
+  head(n_terms) %>%
+  mutate(Description = fct_inorder(Description)) %>%
+  arrange(desc(Description)) %>%  # reverse axis order so top shown first
+  mutate(Description = fct_inorder(Description))
+  
+top_gsea %>%
+  ggplot(aes(Description, -log10(p.adjust))) +
+  geom_col(fill = "#6A51A3", alpha = 0.7) +
+  labs(y = "-log10(p-value)") +
+  scale_y_continuous(expand = expansion(c(0.02, 0.05))) +
+  coord_flip() +
+  djvdj_theme() +
+  theme(
+    aspect.ratio = 0.5,
+    panel.border = element_blank(),
+    axis.line.x  = element_line(size = 0.5, color = "grey85"),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y  = element_text(size = 20, hjust = 1, color = "black"),
+    axis.text.x  = element_text(size = 16, hjust = 1, color = "black"),
+    axis.title.x = element_text(size = 20)
+  )
+```
+
+Enrichment is shown for select top GSEA terms
+
+```{r "mac GSEA examples", fig.width = 10, fig.height = 5}
+# Plot example terms
+terms <- c(
+  levels(top_gsea$Description),
+  "rheumatic disease",
+  "rheumatoid arthritis",
+  "bone inflammation disease"
+) %>%
+  unique()
+
+gsea_terms <- mac_chikv_gsea@result %>%
+  dplyr::filter(Description %in% terms)
+
+gsea_terms <- set_names(gsea_terms$ID, gsea_terms$Description)
+gsea_terms <- gsea_terms[terms]
+
+gsea_terms %>%
+  imap(~ {
+    mac_chikv_gsea %>%
+      gseaplot(
+        .x,
+        by = "runningScore",
+        color.line = "#0072B2"
+      ) +
+      labs(subtitle = .y, x = "Gene rank") +
+      theme_cowplot() +
+      djvdj_theme() +
+      theme(
+        aspect.ratio = 0.65,
+        plot.subtitle = element_text(face = "plain", size = 15),
+        axis.title = element_text(size = 10)
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    nrow = 2
+  )
+```
+
+---
+
+<br>
+
+<br>
+
+# Figure 2
+
+## 2B
 
 The fraction of CHIKV+ cells identified for each cell type is shown below.
 
@@ -848,44 +919,413 @@ dat %>%
   )
 ```
 
-<br>
+---
 
 <br>
 
-## Differential expression
+<br>
 
-The number of differentially expressed genes identified for mock vs CHIKV is
-shown below for each cell type.
+# Figure 4
 
-```{r "DEGs bargraph", fig.width = 5, fig.height = 3, out.width = "%40"}
-type_chikv_sig %>%
+## 4A-B
+
+UMAP projections show macrophage subsets.
+
+```{r "mac subset plots", fig.width = 11.25, fig.height = 5.6}
+# Create mac subset UMAPs
+create_subset_umap <- function(so_in, sub_clmn, clrs) {
+  
+  sub_labs <- get_nlab_fun(so_in, sub_clmn, l = " (", r = ")")
+  
+  res <- so_in %>%
+    plot_scatter(
+      sub_clmn,
+      x = "hUMAP_1",
+      y = "hUMAP_2",
+      plot_lvls = names(clrs),
+      size = 0.7
+    ) +
+    scale_color_manual(values = clrs, labels = sub_labs) +
+    guides(color = guide_legend(
+      ncol = 1, override.aes = list(size = 3), reverse = TRUE)
+    ) +
+    int_u_theme +
+    theme(
+      plot.title  = element_text(hjust = 0.5, size = 20),
+      legend.text = element_text(size = 14)
+    )
+  
+  res
+}
+
+# # Adjust mac_type labels
+# so_mac <- so_mac %>%
+#   mutate_meta(
+#     mutate,
+#     mac_type = replace_na(mac_type, "unassigned"),
+#     mac_type = recode(mac_type, !!!mac_typ_labs)
+#   )
+
+# Create mac subset UMAPs
+u <- treats %>%
+  map(~ {
+    so_mac %>%
+      subset(treatment == .x) %>%
+      create_subset_umap("mac_type", mac_typ_cols_2) +
+      ggtitle(.x)
+  })
+
+# Create mac subset bargraphs
+br <- so_mac@meta.data %>%
   mutate(
-    cell_type = fct_infreq(cell_type),
-    direction = fct_relevel(direction, c("up", "down"))
+    treatment = fct_relevel(treatment, treats),
+    rep = str_c("r", rep)
   ) %>%
-  ggplot(aes(cell_type, fill = direction)) +
-  geom_bar(color = "black", width = 0.75, linewidth = 0.35) +
-  scale_fill_manual(values = c(up = sam_cols[[3]], down = sam_cols[[4]])) +
-  labs(y = "# of DEGs") +
+  ggplot(aes(rep, fill = mac_type)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ treatment, scales = "free") +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  scale_y_continuous(expand = expansion(0)) +
+  scale_x_discrete(labels = (function(x) str_remove(x, str_c("-", params$tm)))) +
   base_theme +
   theme(
-    aspect.ratio         = 0.6,
-    legend.position      = c(0.5, 0.8),
-    legend.title         = element_blank(),
-    legend.direction     = "horizontal",
-    legend.justification = "center",
-    axis.line.x          = element_line(color = "black"),
-    axis.line.y          = element_line(color = "black"),
-    axis.ticks.x         = element_line(color = "black"),
-    axis.ticks.y         = element_line(color = "black"),
-    axis.title.x         = element_blank(),
-    axis.text.x          = element_text(angle = 45, hjust = 1)
+    aspect.ratio    = 3,
+    legend.position = "none",
+    strip.text      = element_text(size = 20),
+    axis.title      = element_blank(),
+    axis.text.y     = element_blank(),
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    axis.ticks.x    = element_blank(),
+    axis.ticks.y    = element_blank()
   )
+
+# Create final figure
+plot_grid(
+  plotlist = append(u, list(br)),
+  nrow  = 1,
+  align = "vh",
+  axis  = "trbl",
+  rel_widths = c(1, 1, 0.7)
+)
+
+# Boxplots showing module score for assigned subsets
+# so_mac@meta.data %>%
+#   pivot_longer(all_of(feat_lvls)) %>%
+#   ggplot(aes(mac_type, value, fill = mac_type)) +
+#   geom_boxplot() +
+#   facet_wrap(~ name, scales = "free_y") +
+#   scale_fill_manual(values = mac_typ_cols) +
+#   base_theme +
+#   theme(
+#     axis.text.x     = element_text(angle = 45, hjust = 1),
+#     axis.title      = element_blank(),
+#     legend.position = "none"
+#   )
+
 ```
 
 <br>
 
+## 4C
+
+UMAP projections show CHIKV+ cells (left) and CHIKV-high clusters
+(middle, right) for CHIKV-infected samples.
+
+```{r "CHIKV+ clusters", fig.width = 10, fig.height = 4.5}
+# Set plot colors
+chikv_clst_grp_clrs <- c(
+  `CHIKV-high` = "#035B8F",
+  `CHIKV-low`  = "#009E73"
+)
+
+# Create UMAP showing CHIKV+ cells
+u_dat <- so_mac@meta.data %>%
+  filter(treatment == "CHIKV")
+
+u1 <- u_dat %>%
+  ggplot(aes(hUMAP_1, hUMAP_2)) +
+  
+  geom_point_trace(
+    trace_position = "bottom",
+    fill = "white",
+    size = 1.5
+  ) +
+  geom_point(
+    aes(color = mac_type),
+    data = ~ filter(.x, chikv_grp == chikv_grps[2]),
+    size = 2
+  ) +
+  scale_color_manual(values = mac_typ_cols_2) +
+  guides(color = guide_legend(nrow = 3)) +
+  umap_theme +
+  theme(
+    legend.position = "bottom",
+    legend.title    = element_blank(),
+    legend.text     = element_text(size = 12),
+    panel.border    = element_rect(color = ln_col, linewidth = ln_pt)
+  )
+
+# Create UMAP showing CHIKV-high clusters
+u2 <- u_dat %>%
+  plot_scatter(
+    "chikv_clst_grp",
+    "hUMAP_1", "hUMAP_2",
+    size        = 1,
+    plot_colors = chikv_clst_grp_clrs,
+    n_label     = "legend"
+  ) +
+  umap_theme +
+  theme(
+    legend.position = "bottom",
+    legend.title    = element_blank(),
+    legend.text     = element_text(size = 12),
+  )
+
+# Bargraph showing CHIKV-low/high clusters
+br <- u_dat %>%
+  ggplot(aes(rep, fill = mac_type)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ chikv_clst_grp, nrow = 1) +
+  labs(y = "fraction of cells") +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  scale_y_continuous(breaks = c(0, 0.5, 1), expand = expansion(c(0, 0))) +
+  base_theme +
+  theme(
+    aspect.ratio    = 2.5,
+    legend.position = "none",
+    strip.text      = element_text(size = 12),
+    axis.title.x    = element_blank()
+  )
+
+# Create final figure
+plot_grid(
+  u1, u2, br,
+  nrow  = 1,
+  align = "h",
+  axis  = "tb",
+  rel_widths = c(1, 1, 0.7)
+)
+```
+
 <br>
+
+## 4D
+
+Heatmaps show expression of the top 20 genes (arranged by maximum adjust p-value)
+for each macrophage subset upregulated in CHIKV vs mock-infected samples.
+Diamonds indicate genes that are significantly upregulated.
+
+```{r "mac chikv type heatmaps", fig.width = 5.2, fig.height = 6}
+# Set genes to plot
+# * exclude unassigned macrophages
+# * filter expr_dat after selecting genes to ensure diamonds are included for
+#   all cell types that significantly upregulate the gene
+expr_dat <- mac_type_chikv_sig %>%
+  filter(
+    mac_type != "unassigned",
+    direction == "up"
+  ) %>%
+  group_by(gene) %>%
+  mutate(n = n_distinct(mac_type)) %>%
+  ungroup() %>%
+  
+  mutate(
+    mac_type = fct_relevel(mac_type, names(mac_typ_cols))
+  ) %>%
+  select(gene, mac_type, max_p_adj, n)
+
+gns <- expr_dat %>%
+  arrange(max_p_adj) %>%
+  group_by(mac_type) %>%
+  slice(1:20) %>%
+  arrange(desc(n), max_p_adj, mac_type) %>%
+  pull(gene) %>%
+  unique()
+
+expr_dat <- expr_dat %>%
+  filter(gene %in% gns) %>%
+  mutate(gene = fct_relevel(gene, gns))
+
+# Format plot data
+# * exclude unassigned macrophages
+feats <- c(
+  "sample", "treatment", "rep",
+  "mac_type", "chikv_grp",
+  gns
+)
+
+dat <- so_mac %>%
+  FetchData(feats) %>%
+  as_tibble(rownames = ".cell_id") %>%
+  filter(mac_type != "unassigned") %>%
+  pivot_longer(all_of(gns)) %>%
+  group_by(sample, mac_type, name) %>%
+  summarize(value = mean(value), .groups = "drop") %>%
+  group_by(name) %>%
+  mutate(value = as.numeric(scale(value))) %>%
+  ungroup() %>%
+  mutate(
+    sample   = fct_relevel(sample, names(sam_cols)),
+    mac_type = fct_relevel(mac_type, names(mac_typ_cols)),
+    name     = fct_relevel(name, rev(gns))
+  )
+
+# Create heatmaps
+dat %>%
+  ggplot(aes(sample, name, fill = value)) +
+  geom_tile() +
+  geom_point(
+    aes(x = 3.5, y = gene, fill = NULL),
+    data = expr_dat,
+    shape = 5,
+    size = 2,
+    stroke = 1
+  ) +
+  facet_wrap(
+    ~ mac_type, nrow = 1,
+    labeller = as_labeller(mac_strip_labs, default = label_parsed)
+  ) +
+  scale_fill_gradientn(colours = c("lightblue", "white", "#d7301f"), name = "z-score") +
+  scale_x_discrete(labels = .simplify_sample()) +
+  guides(fill = guide_colorbar(ticks = FALSE)) +
+  base_theme +
+  theme(
+    strip.clip  = "off",
+    strip.text  = element_text(size = txt_pt2),
+    axis.title  = element_blank(),
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    legend.key.width = unit(7, "pt")
+  )
+```
+
+---
+
+<br>
+
+<br>
+
+# Figure 5
+
+## 5A
+
+Expression of select genes upregulated in CHIKV- vs mock-infected samples is
+shown below for macrophage subsets.
+
+```{r, fig.width = 19, fig.height = 7.5}
+# Genes to plot
+gns <- c("Tnf", "Il1b", "Nlrp3", "H2-Eb1")
+
+u_clrs    <- grp_cols
+u_clrs[1] <- lighten("#009E73", 0.2)
+
+names(u_clrs) <- treats
+
+# Create plots for example genes
+# * exclude unassigned macrophages
+gn_boxes <- so_mac %>%
+  subset(mac_type != "unassigned") %>%
+  create_celltype_plots(
+    gns     = gns,
+    p_data  = mac_type_chikv_sig,
+    p_clmn  = "max_p_adj",
+    bx_labs = mac_x_labs
+  )
+
+ex_plts <- plot_grid(
+  plotlist = gn_boxes,
+  align = "v",
+  axis  = "rl",
+  nrow  = 2
+)
+
+ex_plts
+```
+
+<br>
+
+## 5D
+
+Heatmaps show expression of the top 10 marker genes
+(arranged by minimum fold change) for each macrophage subset.
+
+```{r "mac type heatmaps", fig.width = 5.2, fig.height = 6.1}
+# Set genes to plot
+# * exclude unassigned macrophages
+expr_dat <- mac_type_sig %>%
+  filter(
+    ident_1 != "unassigned"
+  ) %>%
+  rename(mac_type = ident_1) %>%
+  arrange(desc(min_abs_fc)) %>%
+  group_by(mac_type) %>%
+  slice(1:10) %>%
+  ungroup() %>%
+  mutate(
+    mac_type = fct_relevel(mac_type, names(mac_typ_cols))
+  ) %>%
+  arrange(mac_type, max_p_adj) %>%
+  select(mac_type, gene, max_p_adj)
+
+gns <- expr_dat %>%
+  pull(mac_type, gene)
+
+# Format plot data
+# * exclude unassigned macrophages
+feats <- c(
+  "sample", "treatment", "rep",
+  "mac_type", names(gns)
+)
+
+dat <- so_mac %>%
+  FetchData(feats) %>%
+  as_tibble(rownames = ".cell_id") %>%
+  filter(mac_type != "unassigned") %>%
+  pivot_longer(all_of(names(gns))) %>%
+  group_by(sample, mac_type, name) %>%
+  summarize(value = mean(value), .groups = "drop") %>%
+  group_by(name) %>%
+  mutate(value = as.numeric(scale(value))) %>%
+  ungroup() %>%
+  mutate(
+    sample      = fct_relevel(sample, names(sam_cols)),
+    mac_type    = fct_relevel(mac_type, names(mac_typ_cols)),
+    name        = fct_relevel(name, rev(names(gns))),
+    marker_type = gns[as.character(name)],
+    marker_type = fct_relevel(marker_type, names(mac_typ_cols))
+  )
+
+# Create heatmaps
+dat %>%
+  ggplot(aes(sample, name, fill = value)) +
+  geom_tile() +
+  facet_grid(
+    marker_type ~ mac_type,
+    labeller = as_labeller(mac_strip_labs, default = label_parsed),
+    scales = "free"
+  ) +
+  scale_fill_gradientn(colours = c("lightblue", "white", "#d7301f"), name = "z-score") +
+  scale_x_discrete(labels = .simplify_sample()) +
+  guides(fill = guide_colorbar(ticks = FALSE)) +
+  base_theme +
+  theme(
+    strip.clip  = "off",
+    strip.text  = element_text(size = txt_pt2),
+    strip.text.y.right = element_blank(),
+    axis.title  = element_blank(),
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    legend.key.width = unit(7, "pt")
+  )
+```
+
+
+
+
+
+
+
+
+
 
 Bargraphs showing top GSEA disease ontology terms for genes upregulated when
 comparing all mock vs all CHIKV-infected cells.
@@ -966,6 +1406,7 @@ gsea_terms %>%
 <br>
 
 <br>
+
 
 ## Ifng expression
 

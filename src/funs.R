@@ -2551,8 +2551,9 @@ create_celltype_plots <- function(so_in, gns, x = "hUMAP_1", y = "hUMAP_2",
                                   p_data = NULL, p_clmn = "p.value",
                                   pt_size = 0.001,
                                   u_clrs = "#6A51A3", bx_clrs = mac_typ_cols_2,
-                                  rel_widths = c(1, 0.65, 0.1),
-                                  u_theme = theme(), bx_theme = theme()) {
+                                  rel_widths = c(1, 0.55, 0.1),
+                                  u_theme = theme(), bx_theme = theme(),
+                                  bx_labs = waiver()) {
   ttl_sz   <- 20
   txt_sz   <- 10
   txt_sz_2 <- 14
@@ -2562,6 +2563,7 @@ create_celltype_plots <- function(so_in, gns, x = "hUMAP_1", y = "hUMAP_2",
   # Format p-values
   if (!is.null(p_data)) {
     p_data <- p_data %>%
+      filter(!!sym(bx_clmn) %in% so_in[[bx_clmn]][[bx_clmn]]) %>%
       rowwise() %>%
       mutate(p_lab = .format_pvalue(!!sym(p_clmn))) %>%
       ungroup()
@@ -2605,7 +2607,7 @@ create_celltype_plots <- function(so_in, gns, x = "hUMAP_1", y = "hUMAP_2",
         geom_boxplot(outlier.size = 0.25, key_glyph = draw_key_point) +
         scale_fill_manual(values = bx_clrs) +
         scale_alpha_manual(values = c(0.1, 1)) +
-        scale_x_discrete(labels = ~ str_remove(.x, "(CX3CR1_|_interstitial)")) +
+        scale_x_discrete(labels = bx_labs) +
         guides(
           fill = "none",
           alpha = guide_legend(override.aes = list(size = 4, shape = 22, fill = "black"))
