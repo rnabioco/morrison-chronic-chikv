@@ -3389,4 +3389,130 @@ create_treatment_vs_marker_fig <- function(so_in, treat, grp_clmn, rep_clmn = "r
   }
 }
 
-
+create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
+                               sam_clmn = "sample", sam_lvls = NULL,
+                               p_data, p_clmn = "max_p_adj",
+                               n_gns = 20, n_top = n_gns,
+                               clrs = c("lightblue", "white", "#d7301f"),
+                               ex_type = "unassigned", scale_by_type = FALSE,
+                               strip_labs = mac_strip_labs,
+                               strip_lab_fn = label_parsed) {
+    
+  top_clrs <- c(
+    "top" = "black",
+    "significant" = "grey70"
+  )
+  
+  if (is.null(strip_labs)) {
+    strip_labs <- set_names(unique(so_in[[type_clmn]]))
+  }
+  
+  # Identify genes to plot
+  p_data <- p_data %>%
+    filter(!(!!sym(type_clmn) %in% ex_type)) %>%
+    mutate(!!sym(type_clmn) := fct_relevel(!!sym(type_clmn), type_lvls))
+  
+  n_gns <- max(n_gns, n_top)
+  
+  top_gns <- p_data %>%
+    arrange(!!sym(p_clmn)) %>%  # pull top 20 based on p val
+    group_by(!!sym(type_clmn)) %>%
+    slice(1:n_gns) %>%
+    group_by(gene) %>%
+    mutate(n = n_distinct(!!sym(type_clmn))) %>%
+    ungroup() %>%
+    arrange(desc(n), !!sym(type_clmn), !!sym(p_clmn))
+  
+  gns <- unique(top_gns$gene)
+  
+  top_gns <- top_gns %>%
+    arrange(!!sym(p_clmn)) %>%  # pull top 20 based on p val
+    group_by(!!sym(type_clmn)) %>%
+    slice(1:n_top) %>%
+    ungroup() %>%
+    arrange(desc(n), !!sym(type_clmn), !!sym(p_clmn)) %>%
+    split(.[[type_clmn]]) %>%
+    map(pull, gene)
+  
+  # Format point data
+  p_data <- p_data %>%
+    filter(gene %in% gns) %>%
+    group_by(!!sym(type_clmn)) %>%
+    mutate(top = if_else(
+      gene %in% top_gns[[unique(!!sym(type_clmn))]],
+      names(top_clrs[1]),
+      names(top_clrs[2])
+    )) %>%
+    group_by(gene) %>%
+    mutate(top_n = n_distinct((!!sym(type_clmn))[top])) %>%
+    ungroup() %>%
+    mutate(
+      gene = fct_relevel(gene, gns),
+      top  = fct_relevel(top, names(top_clrs))
+    )
+  
+  # Format heatmap data
+  # * exclude unassigned macrophages
+  feats <- c(sam_clmn, type_clmn, gns)
+  
+  scale_grps <- "name"
+  
+  if (scale_by_type) scale_grps <- c(scale_grps, type_clmn)
+  
+  dat <- so_in %>%
+    FetchData(feats) %>%
+    as_tibble(rownames = ".cell_id") %>%
+    
+    filter(!(!!sym(type_clmn) %in% ex_type)) %>%
+    
+    pivot_longer(all_of(gns)) %>%
+    group_by(!!sym(sam_clmn), !!sym(type_clmn), name) %>%
+    summarize(value = mean(value), .groups = "drop") %>%
+    
+    group_by(!!!syms(scale_grps)) %>%
+    mutate(value = as.numeric(scale(value))) %>%
+    
+    ungroup() %>%
+    mutate(
+      !!sym(sam_clmn)  := fct_relevel(!!sym(sam_clmn), sam_lvls),
+      !!sym(type_clmn) := fct_relevel(!!sym(type_clmn), type_lvls),
+      name              = fct_relevel(name, rev(gns))
+    )
+  
+  # Create heatmaps
+  res <- dat %>%
+    ggplot(aes(!!sym(sam_clmn), name, fill = value)) +
+    geom_tile() +
+    geom_point(
+      aes(x = 3.5, y = gene, fill = NULL, color = top),
+      data   = p_data,
+      shape  = 5,
+      size   = 2,
+      stroke = 1
+    ) +
+    facet_wrap(
+      as.formula(str_c("~ ", type_clmn)),
+      nrow = 1,
+      labeller = as_labeller(strip_labs, default = strip_lab_fn)
+    ) +
+    scale_color_manual(values = top_clrs) +
+    
+    scale_fill_gradientn(colours = clrs, name = "z-score") +
+    
+    scale_x_discrete(labels = simp_sam_labs) +
+    
+    guides(
+      fill  = guide_colorbar(ticks = FALSE),
+      color = guide_legend(title = NULL)
+    ) +
+    base_theme +
+    theme(
+      strip.clip  = "off",
+      strip.text  = element_text(size = txt_pt2),
+      axis.title  = element_blank(),
+      axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+      legend.key.width = unit(7, "pt")
+    )
+  
+  res
+}

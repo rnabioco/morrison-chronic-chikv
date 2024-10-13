@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options:
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 <br>
@@ -1121,81 +1121,17 @@ Diamonds indicate genes that are significantly upregulated.
 # * exclude unassigned macrophages
 # * filter expr_dat after selecting genes to ensure diamonds are included for
 #   all cell types that significantly upregulate the gene
-expr_dat <- mac_type_chikv_sig %>%
-  filter(
-    mac_type != "unassigned",
-    direction == "up"
-  ) %>%
-  group_by(gene) %>%
-  mutate(n = n_distinct(mac_type)) %>%
-  ungroup() %>%
-  
-  mutate(
-    mac_type = fct_relevel(mac_type, names(mac_typ_cols))
-  ) %>%
-  select(gene, mac_type, max_p_adj, n)
+degs <- mac_type_chikv_sig %>%
+  filter(direction == "up")
 
-gns <- expr_dat %>%
-  arrange(max_p_adj) %>%
-  group_by(mac_type) %>%
-  slice(1:20) %>%
-  arrange(desc(n), max_p_adj, mac_type) %>%
-  pull(gene) %>%
-  unique()
-
-expr_dat <- expr_dat %>%
-  filter(gene %in% gns) %>%
-  mutate(gene = fct_relevel(gene, gns))
-
-# Format plot data
-# * exclude unassigned macrophages
-feats <- c(
-  "sample", "treatment", "rep",
-  "mac_type", "chikv_grp",
-  gns
-)
-
-dat <- so_mac %>%
-  FetchData(feats) %>%
-  as_tibble(rownames = ".cell_id") %>%
-  filter(mac_type != "unassigned") %>%
-  pivot_longer(all_of(gns)) %>%
-  group_by(sample, mac_type, name) %>%
-  summarize(value = mean(value), .groups = "drop") %>%
-  group_by(name) %>%
-  mutate(value = as.numeric(scale(value))) %>%
-  ungroup() %>%
-  mutate(
-    sample   = fct_relevel(sample, names(sam_cols)),
-    mac_type = fct_relevel(mac_type, names(mac_typ_cols)),
-    name     = fct_relevel(name, rev(gns))
-  )
-
-# Create heatmaps
-dat %>%
-  ggplot(aes(sample, name, fill = value)) +
-  geom_tile() +
-  geom_point(
-    aes(x = 3.5, y = gene, fill = NULL),
-    data = expr_dat,
-    shape = 5,
-    size = 2,
-    stroke = 1
-  ) +
-  facet_wrap(
-    ~ mac_type, nrow = 1,
-    labeller = as_labeller(mac_strip_labs, default = label_parsed)
-  ) +
-  scale_fill_gradientn(colours = c("lightblue", "white", "#d7301f"), name = "z-score") +
-  scale_x_discrete(labels = .simplify_sample()) +
-  guides(fill = guide_colorbar(ticks = FALSE)) +
-  base_theme +
-  theme(
-    strip.clip  = "off",
-    strip.text  = element_text(size = txt_pt2),
-    axis.title  = element_blank(),
-    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
-    legend.key.width = unit(7, "pt")
+so_mac %>%
+  create_deg_heatmap(
+    type_clmn = "mac_type",
+    type_lvls = names(mac_typ_cols),
+    sam_clmn  = "sample",
+    sam_lvls  = sam_lvls,
+    p_data    = degs,
+    p_clmn    = "max_p_adj"
   )
 ```
 
@@ -1318,7 +1254,43 @@ dat %>%
   )
 ```
 
+---
 
+<br>
+
+<br>
+
+# Figure 6
+
+## 6C
+
+```{r}
+t_chikv_degs <- t_sig_2 %>%
+  rename(t_type = cd4_8) %>%
+  bind_rows(t_sig_3) %>%
+  filter(direction == "up")
+
+so_t_degs <- so_t %>%
+  mutate_meta(~ mutate(.x, t_type = cd4_8)) %>%
+  merge(so_t)
+
+t_deg_typs <- unique(so_t_degs$t_type)
+
+so_t_degs %>%
+  create_deg_heatmap(
+    type_clmn     = "t_type",
+    type_lvls     = c("CD8", "CD4", "CD8 naive", "CD8 Teff", "CD4 Teff"),
+    sam_clmn      = "sample",
+    sam_lvls      = sam_lvls,
+    p_data        = t_chikv_degs,
+    p_clmn        = "p_val_adj",
+    n_gns         = 15,
+    ex_type       = t_deg_typs[!t_deg_typs %in% t_chikv_degs$t_type],
+    scale_by_type = TRUE,
+    strip_labs    = NULL,
+    strip_lab_fn  = label_value
+  )
+```
 
 
 
