@@ -2661,7 +2661,8 @@ create_celltype_plots_2 <- function(so_in, gn, x = "hUMAP_1", y = "hUMAP_2",
                                     bx_clmn, grp_clmn = "treatment",
                                     grp_lvls = NULL, pt_size = 1,
                                     u_clrs = c("lightblue", "white", "#D7301F"),
-                                    bx_clrs, ttl = NULL
+                                    bx_clrs, ttl = NULL, rel_h = c(1, 0.55),
+                                    out_size = 0.5
                                     ) {
 
   u <- so_in %>%
@@ -2695,7 +2696,7 @@ create_celltype_plots_2 <- function(so_in, gn, x = "hUMAP_1", y = "hUMAP_2",
       group_col    = grp_clmn,
       n_label      = "none",
       method       = "boxplot",
-      outlier.size = 0.5,
+      outlier.size = out_size,
       plot_colors  = bx_clrs,
       plot_lvls    = names(bx_clrs),
       color        = "black",
@@ -2721,7 +2722,7 @@ create_celltype_plots_2 <- function(so_in, gn, x = "hUMAP_1", y = "hUMAP_2",
     ncol  = 1,
     align = "v",
     axis  = "rl",
-    rel_heights = c(1, 0.55)
+    rel_heights = rel_h
   )
   
   res
@@ -3394,10 +3395,10 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
                                p_data, p_clmn = "max_p_adj",
                                n_gns = 20, n_top = n_gns,
                                clrs = c("lightblue", "white", "#d7301f"),
-                               ex_type = "unassigned", scale_by_type = FALSE,
-                               strip_labs = mac_strip_labs,
+                               ex_type = "unassigned", inc_type = NULL,
+                               strip_labs = waiver(),
                                strip_lab_fn = label_parsed) {
-    
+  
   top_clrs <- c(
     "top" = "black",
     "significant" = "grey70"
@@ -3408,6 +3409,11 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
   }
   
   # Identify genes to plot
+  if (!is.null(inc_type)) {
+    p_data <- p_data %>%
+      filter(!!sym(type_clmn) %in% inc_type)
+  }
+  
   p_data <- p_data %>%
     filter(!(!!sym(type_clmn) %in% ex_type)) %>%
     mutate(!!sym(type_clmn) := fct_relevel(!!sym(type_clmn), type_lvls))
@@ -3457,8 +3463,6 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
   
   scale_grps <- "name"
   
-  if (scale_by_type) scale_grps <- c(scale_grps, type_clmn)
-  
   dat <- so_in %>%
     FetchData(feats) %>%
     as_tibble(rownames = ".cell_id") %>%
@@ -3479,6 +3483,18 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
       name              = fct_relevel(name, rev(gns))
     )
   
+  if (!is.null(inc_type)) {
+    dat <- dat %>%
+      filter(!!sym(type_clmn) %in% inc_type)
+  }
+  
+  # Only plot cell types present in object
+  # * this will still plot DEGs identified for other cell types but will
+  #   only plot points for types present in the object
+  # * this is useful when creating figures by combining multiple heatmaps
+  p_data <- p_data %>%
+    filter(!!sym(type_clmn) %in% dat[[type_clmn]])
+  
   # Create heatmaps
   res <- dat %>%
     ggplot(aes(!!sym(sam_clmn), name, fill = value)) +
@@ -3497,21 +3513,132 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
     ) +
     scale_color_manual(values = top_clrs) +
     
-    scale_fill_gradientn(colours = clrs, name = "z-score") +
+    scale_fill_gradientn(
+      colours = clrs,
+      name    = "z-score",
+      breaks  = (function(x) x),
+      labels  = c("low", "high")
+    ) +
     
     scale_x_discrete(labels = simp_sam_labs) +
     
     guides(
-      fill  = guide_colorbar(ticks = FALSE),
+      fill  = guide_colorbar(
+        ticks       = FALSE,
+        label.hjust = -0.5,
+        label.vjust = c(0, 1)
+      ),
       color = guide_legend(title = NULL)
     ) +
     base_theme +
     theme(
-      strip.clip  = "off",
-      strip.text  = element_text(size = txt_pt2),
-      axis.title  = element_blank(),
-      axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
-      legend.key.width = unit(7, "pt")
+      strip.clip       = "off",
+      strip.text       = element_text(size = txt_pt2),
+      axis.title       = element_blank(),
+      axis.text.x      = element_text(angle = 90, hjust = 1, vjust = 0.5),
+      legend.key.width = unit(7, "pt"),
+      legend.title     = element_blank()
+    )
+  
+  res
+}
+
+create_marker_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
+                                  sam_clmn = "sample", sam_lvls = NULL,
+                                  p_data, p_clmn = "min_abs_fc", n_gns = 10,
+                                  clrs = c("lightblue", "white", "#d7301f"),
+                                  ex_type = "unassigned", inc_type = NULL,
+                                  strip_labs = waiver(),
+                                  strip_lab_fn = label_parsed) {
+  
+  # Set genes to plot
+  # * exclude unassigned macrophages
+  if (!is.null(inc_type)) {
+    p_data <- p_data %>%
+      filter(ident_1 %in% inc_type)
+  }
+  
+  p_data <- p_data %>%
+    filter(!ident_1 %in% ex_type) %>%
+    rename(!!sym(type_clmn) := ident_1) %>%
+    
+    arrange(desc(!!sym(p_clmn))) %>%  # FIX THIS
+    
+    group_by(!!sym(type_clmn)) %>%
+    slice(1:n_gns) %>%
+    ungroup() %>%
+    mutate(
+      !!sym(type_clmn) := fct_relevel(!!sym(type_clmn), type_lvls)
+    ) %>%
+    arrange(!!sym(type_clmn), desc(!!sym(p_clmn))) %>%
+    select(!!sym(type_clmn), gene, !!sym(p_clmn)) %>%
+    
+    filter(!duplicated(gene))
+  
+  gns <- p_data %>%
+    pull(type_clmn, gene)
+  
+  # Format plot data
+  # * exclude unassigned macrophages
+  feats <- c("sample", type_clmn, names(gns))
+  
+  dat <- so_in %>%
+    FetchData(feats) %>%
+    as_tibble(rownames = ".cell_id") %>%
+    filter(!(!!sym(type_clmn) %in% ex_type)) %>%
+    pivot_longer(all_of(names(gns))) %>%
+    group_by(!!sym(sam_clmn), !!sym(type_clmn), name) %>%
+    summarize(value = mean(value), .groups = "drop") %>%
+    group_by(name) %>%
+    mutate(value = as.numeric(scale(value))) %>%
+    ungroup() %>%
+    mutate(
+      !!sym(sam_clmn)  := fct_relevel(!!sym(sam_clmn), sam_lvls),
+      !!sym(type_clmn) := fct_relevel(!!sym(type_clmn), type_lvls),
+      name              = fct_relevel(name, rev(names(gns))),
+      marker_type       = gns[as.character(name)],
+      marker_type       = fct_relevel(marker_type, type_lvls)
+    )
+  
+  if (!is.null(inc_type)) {
+    dat <- dat %>%
+      filter(!!sym(type_clmn) %in% inc_type)
+  }
+  
+  # Create heatmaps
+  res <- dat %>%
+    ggplot(aes(!!sym(sam_clmn), name, fill = value)) +
+    geom_tile() +
+    facet_grid(
+      as.formula(str_c("marker_type ~ ", type_clmn)),
+      labeller = as_labeller(strip_labs, default = strip_lab_fn),
+      scales = "free"
+    ) +
+    scale_fill_gradientn(
+      colours = clrs,
+      name    = "z-score",
+      breaks  = (function(x) x),
+      labels  = c("low", "high")
+    ) +
+    
+    scale_x_discrete(labels = simp_sam_labs) +
+    
+    guides(
+      fill = guide_colorbar(
+        ticks       = FALSE,
+        label.hjust = -0.5,
+        label.vjust = c(0, 1)
+      )
+    ) +
+    base_theme +
+    theme(
+      legend.key.width   = unit(7, "pt"),
+      legend.title       = element_blank(),
+      strip.clip         = "off",
+      strip.text         = element_text(size = txt_pt2),
+      strip.text.y.right = element_blank(),
+      axis.title         = element_blank(),
+      axis.text.x        = element_text(angle = 90, hjust = 1, vjust = 0.5)
     )
   
   res
