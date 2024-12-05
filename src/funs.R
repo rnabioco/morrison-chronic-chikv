@@ -3390,12 +3390,19 @@ create_treatment_vs_marker_fig <- function(so_in, treat, grp_clmn, rep_clmn = "r
   }
 }
 
+#' Create heatmap summarizing upregulated genes for cell types
+#' 
+#' @param n_gns Total number of ranked genes to plot, genes are selected by
+#' sorting based on `p_clmn`
+#' @param n_top Number of top genes to label on the plot
+#' @param include_genes Additional genes to include on plot
 create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
                                sam_clmn = "sample", sam_lvls = NULL,
-                               p_data, p_clmn = "max_p_adj",
+                               p_data, p_clmn = "max_p_adj", rev_sort = FALSE,
                                n_gns = 20, n_top = n_gns,
                                clrs = c("lightblue", "white", "#d7301f"),
                                ex_type = "unassigned", inc_type = NULL,
+                               include_genes = NULL,
                                strip_labs = waiver(),
                                strip_lab_fn = label_parsed) {
   
@@ -3408,7 +3415,7 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
     strip_labs <- set_names(unique(so_in[[type_clmn]]))
   }
   
-  # Identify genes to plot
+  # Format p-value table
   if (!is.null(inc_type)) {
     p_data <- p_data %>%
       filter(!!sym(type_clmn) %in% inc_type)
@@ -3418,12 +3425,19 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
     filter(!(!!sym(type_clmn) %in% ex_type)) %>%
     mutate(!!sym(type_clmn) := fct_relevel(!!sym(type_clmn), type_lvls))
   
+  # Identify number of ranked genes to include in the heatmap
   n_gns <- max(n_gns, n_top)
   
+  sort_fn <- function(x) x
+  
+  if (rev_sort) sort_fn <- desc
+  
   top_gns <- p_data %>%
-    arrange(!!sym(p_clmn)) %>%  # pull top 20 based on p val
+    arrange(sort_fn(!!sym(p_clmn))) %>%
     group_by(!!sym(type_clmn)) %>%
-    slice(1:n_gns) %>%
+    
+    filter(row_number() <= n_gns | gene %in% include_genes) %>%
+
     group_by(gene) %>%
     mutate(n = n_distinct(!!sym(type_clmn))) %>%
     ungroup() %>%
@@ -3431,9 +3445,10 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
   
   gns <- unique(top_gns$gene)
   
+  # Identify genes to label as "top"
   top_gns <- top_gns %>%
-    arrange(!!sym(p_clmn)) %>%  # pull top 20 based on p val
-    group_by(!!sym(type_clmn)) %>%
+    arrange(sort_fn(!!sym(p_clmn))) %>%
+    group_by(!!sym(type_clmn)) %>%    
     slice(1:n_top) %>%
     ungroup() %>%
     arrange(desc(n), !!sym(type_clmn), !!sym(p_clmn)) %>%

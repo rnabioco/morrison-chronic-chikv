@@ -1,0 +1,1632 @@
+---
+title:  "CHIKV 28dpi scRNA-seq"
+author: "Ryan Sheridan"
+date:   "`r Sys.Date()`"
+output: 
+  html_document:
+    toc:       true
+    toc_float: true
+    toc_depth: 3
+    theme:     cosmo
+    highlight: kate
+
+params:
+  unenr_dir:    "results/2021-11-05"      # Directory containing unenriched data
+  enr_dir:      "results/2022-02-03"      # Directory containing CHIKV-enriched data
+  fig_dir:      "~/Projects/morrison-scRNA-seq/results/2021-11-05/figures"
+  template_dir: "src"                     # Directory containing Rmd templates
+  table_dir:    "tables"                  # Directory to write tables
+  overwrite:    false                     # Should tables be overwritten if they already exist?
+  so_dir:       "~/Dropbox/Ryan/Projects" # Directory to write Seurat objects
+  metrics:      "count_metrics.csv"       # Cell Ranger metrics
+  gene_min:     250                       # Min number of detected genes per cell
+  gene_max:     5500                      # Max number of detected genes per cell
+  mito_max:     30                        # Max percentage mito reads per cells
+  rm_doublets:  true                      # Should doublets be removed using DoubletFinder?
+  type_res:     5                         # Clustering resolution for annotating cell types
+  mac_res:      1                         # Clustering resolution for annotating macrophages
+  lec_res:      5                         # Clustering resolution for annotating LECs
+  fib_res:      5                         # Clustering resolution for annotating fibroblasts/stromal cells
+  tm:           "28dpi"                   # Label for time point
+  
+  samples:
+    - "U1"
+    - "U2"
+    - "U3"
+    - "C1"
+    - "C2"
+    - "C3"
+---
+
+<br>
+
+```{r "setup", include = FALSE}
+
+# Default chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  echo    = FALSE,
+  dpi     = 300
+)
+
+# Adjust directory paths based on user input
+enr_dir   <- params$enr_dir
+unenr_dir <- params$unenr_dir
+
+if (enr_dir == "") enr_dir <- unenr_dir
+
+knitr::knit(here::here(unenr_dir, "setup.Rmd"), output = "")
+
+other_pkgs <- c(
+  "clusterProfiler",
+  "enrichplot",
+  "msigdbr",
+  "DOSE",
+  "biomaRt",
+  "org.Mm.eg.db",
+  "qs",
+  "CellChat"
+)
+
+walk(other_pkgs, library, character.only = TRUE)
+
+so_int <- qread(file.path(so_dir, "so_int.qs"))
+
+so_int@active.assay <- "RNA"
+
+# Add macrophage subsets to object
+so_int <- so_int %>%
+  mutate_meta(
+    mutate,
+    mac_type = replace_na(mac_type, "unassigned")
+  )
+
+# Set CHIKV+ clusters
+# based on fraction of CHIKV+ cells
+frac_lim <- 0.012
+
+so_int <- so_int %>%
+  mutate_meta(~ {
+    .x %>%
+      group_by(!!sym(mac_clst_clmn), treatment) %>%
+      mutate(
+        chikv_grp  = ifelse(tot_nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1]),
+        frac_chikv = length(chikv_grp[chikv_grp == chikv_grps[2]]) / n(),
+        chikv_clst_grp = ifelse(
+          frac_chikv > frac_lim,
+          chikv_grps[2],
+          chikv_grps[1]
+        )
+      ) %>%
+      ungroup()
+  })
+
+# Add macrophage info to object
+so <- so %>%
+  AddMetaData(FetchData(so_int, "mac_type")) %>%
+  AddMetaData(FetchData(so_int, "chikv_clst_grp")) %>%
+  mutate_meta(
+    mutate,
+    chikv_clst_grp = replace_na(chikv_clst_grp, chikv_grps[1]),
+    mac_treat = ifelse(
+      chikv_clst_grp == chikv_grps[1] & cell_type == "Macrophages",
+      treats[1],
+      treatment
+    ),
+    mac_treat_2 = ifelse(treatment == treats[2], chikv_clst_grp, treatment),
+    mac_treat_sample = str_c(mac_treat_2, "_", rep),
+    mac_type = ifelse(
+      is.na(mac_type),
+      cell_type,
+      str_c(cell_type, " ", chikv_clst_grp)
+    )
+  )
+
+# Macrophage levels
+n_reps <- n_distinct(so$rep)
+
+mac_treat_lvls <- c(treats[1], chikv_grps)
+
+mac_sam_lvls <- mac_treat_lvls %>%
+  map(~ str_c(.x, "_", 1:n_reps)) %>%
+  purrr::reduce(c)
+
+```
+
+```{r "theme"}
+
+theme_set(djvdj_theme())
+
+# ggplot2 themes
+txt_pt1  <- 10
+txt_pt2  <- 12
+ttl_pt1  <- 14
+ttl_pt2  <- 16
+ln_pt    <- 0.5
+ln_col   <- "grey85"
+cir_size <- 3.5
+sqr_size <- 4
+
+txt_theme_1 <- theme(
+  strip.text  = element_text(size = ttl_pt1),
+  legend.text = element_text(size = txt_pt1),
+  axis.title  = element_text(size = txt_pt2),
+  axis.text   = element_text(size = txt_pt1)
+)
+
+line_theme <- theme(
+  axis.line.x  = element_line(size = ln_pt, color = ln_col),
+  axis.line.y  = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.x = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.y = element_line(size = ln_pt, color = ln_col)
+)
+
+base_theme <- theme_cowplot() +
+  theme(
+    plot.title       = element_text(face = "plain", size = ttl_pt2),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "plain")
+  ) +
+  txt_theme_1 +
+  line_theme
+
+umap_theme <- base_theme +
+  theme(
+    axis.title   = element_blank(),
+    axis.line.x  = element_blank(),
+    axis.line.y  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text    = element_blank(),
+    aspect.ratio = 0.9
+  )
+
+box_theme <- base_theme +
+  theme(
+    legend.position = "none",
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    panel.border    = element_rect(fill = NA, color = ln_col, size = ln_pt),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    axis.title.x    = element_blank()
+  )
+
+fade_0 <- "#FAFAFA"
+fade_1 <- "#F0F0F0"
+fade_2 <- "#D9D9D9"
+
+hist_y_lab <- "number of cells"
+
+# alpha for plots
+al <- 0.7
+
+# Okabe Ito color palettes
+ito_cols <- c(
+  palette_OkabeIto[c(1:3, 5)], "#D7301F",
+  palette_OkabeIto[c(4, 6)],   "#6A51A3",
+  palette_OkabeIto[7],         "#875C04",
+  "#065D43", "#FFD6AD", "#00446E"
+)
+
+ito_cols <- ito_cols[3:length(ito_cols)] %>%
+  darken(0.2) %>%
+  c(ito_cols, ., "#686868", "#000000")
+
+# Set sample colors
+get_cols <- create_col_fun(ito_cols)
+
+sam_cols <- c(
+  "#00446E", "#0072B2", "#56B4E9",
+  "#d7301f", "#D55E00", "#E69F00"
+)
+
+names(sam_cols) <- sam_lvls[params$samples]
+
+treat_cols <- set_names(sam_cols[c(1, 4)], treats)
+
+# CHIKV treatment groups
+chikv_infctd <- so_df %>%
+  group_by(treatment) %>%
+  summarize(mn = mean(nCount_CHIKV), .groups = "drop") %>%
+  filter(mn == max(mn)) %>%
+  pull(treatment)
+
+# Cell type colors
+type_cols <- unique(so_df$cell_type)
+type_cols <- set_names(ito_cols[seq_along(type_cols)], type_cols)
+
+type_cols["unassigned"] <- "#999999"
+
+subtype_cols <- c(colnames(ref_lec), colnames(ref_fib))
+subtype_cols <- set_names(ito_cols[seq_along(subtype_cols)], subtype_cols)
+subtype_cols["unassigned"] <- "#999999"
+subtype_cols["other"]      <- fade_0
+
+# CHIKV clusters colors
+# c("#56B4E9", "#D7301F"),
+grp_cols <- set_names(
+  c("#56B4E9", "#0072B2"),
+  chikv_grps
+)
+
+grp_rep_cols <- grp_cols %>% 
+  imap(~ set_names(
+    rep(.x, n_rep),
+    str_c(.y, "-", 1:n_rep)
+  )) %>%
+  flatten_chr()
+
+# CHIKV cell type colors
+n_high <- so_df %>%
+  filter(chikv_grp == chikv_grps[2]) %>%
+  nrow()
+
+chikv_type_cols <- unique(so_df$cell_type)
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% names(subtype_cols)]
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% c(lec_cell_types, fib_cell_types)]
+
+avail_cols <- ito_cols[!ito_cols %in% subtype_cols]
+
+chikv_type_cols <- set_names(
+  avail_cols[seq_along(chikv_type_cols)],
+  chikv_type_cols
+)
+
+chikv_type_cols <- c(subtype_cols, chikv_type_cols)
+
+chikv_type_cols[chikv_grps[1]] <- fade_2
+
+# Macrophage cluster colors
+mac_clst_cols <- so_mac[[mac_clst_clmn]] %>%
+  pull(mac_clst_clmn) %>%
+  unique() %>%
+  as.numeric() %>%
+  sort() %>%
+  as.character()
+
+mac_clst_cols <- set_names(
+  ito_cols[seq_along(mac_clst_cols)],
+  mac_clst_cols
+)
+
+# UMAP themes
+mac_u_theme <- umap_theme +
+  theme(
+    aspect.ratio         = 0.7,
+    legend.position      = "bottom",
+    legend.justification = "center",
+    legend.title         = element_blank()
+  )
+
+int_u_theme <- mac_u_theme +
+  theme(aspect.ratio = 1)
+
+# Macrophage subset colors
+mac_typs <- c(
+  "AQP1_interstitial",
+  "RELMa_interstitial",
+  "CX3CR1_lining",
+  "infiltrating",
+  "unassigned"
+)
+
+if (!identical(sort(mac_typs), sort(unique(so_int$mac_type)))) {
+  stop("mac_typs do not match cell types in object.")
+}
+
+mac_typ_cols <- mac_typs[!grepl("infiltrating$", mac_typs)]
+
+mac_typ_cols <- set_names(
+  ito_cols[seq_along(mac_typ_cols)],
+  mac_typ_cols
+)
+
+mac_typ_cols["unassigned"]   <- "#999999"
+mac_typ_cols["infiltrating"] <- "#0072B2"
+
+```
+
+```{r "functions"}
+
+#' Create CellChat objects
+run_cellchat <- function(so_in, group_col = "treatment",
+                         cell_col = "cell_type", prefix = "",
+                         include_cols = c(group_col, "sample", "rep", cell_col),
+                         pos_group = "CHIKV", object_dir = NULL) {
+  
+  
+  # Check for saved objects
+  if (!is.null(object_dir)) {
+    obj_path <- file.path(object_dir, str_c(prefix, "cellchat.qs"))
+    
+    if (file.exists(obj_path)) return(qread(obj_path))
+  }
+  
+  # Split input object by treatment group
+  cc_objs <- so_in %>%
+    Seurat::SplitObject(group_col) %>%
+    map(~ {
+      data <- .x@assays$RNA@data
+      meta <- .x@meta.data %>%
+        dplyr::select(all_of(include_cols))
+      
+      list(data = data, meta = meta)
+    })
+  
+  # Create cellchat objects
+  cc_objs <- cc_objs %>%
+    map(~ {
+      createCellChat(
+        object   = .x$data,
+        meta     = .x$meta,
+        group.by = cell_col
+      )
+    })
+  
+  # Select database
+  CellChatDB     <- CellChatDB.mouse
+  CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling")
+  
+  cc_objs <- cc_objs %>%
+    map(~ {
+      .x@DB <- CellChatDB.use
+      .x
+    })
+  
+  # Subset for signaling genes
+  cc_objs <- cc_objs %>%
+    map(subsetData)
+  
+  # Infer signaling network
+  cc_objs <- cc_objs %>%
+    map(~ {
+      .x %>%
+        identifyOverExpressedGenes() %>%
+        identifyOverExpressedInteractions() %>%
+        computeCommunProb() %>%
+        filterCommunication(min.cells = 10) %>%
+        computeCommunProbPathway() %>%
+        aggregateNet() %>%
+        netAnalysis_computeCentrality()
+    })
+  
+  # Merge objects
+  cellchat <- cc_objs %>%
+    mergeCellChat(add.names = names(cc_objs))
+  
+  # Differentially expressed pathways
+  cellchat <- cellchat %>%
+    identifyOverExpressedGenes(
+      group.dataset = "datasets",
+      pos.dataset   = pos_group,
+      features.name = pos_group,
+      only.pos      = FALSE,
+      thresh.pc     = 0.1,
+      thresh.fc     = 0.1,
+      thresh.p      = 1
+    )
+  
+  # Save objects
+  res <- list(
+    cellchat = cellchat,
+    cc_objs  = cc_objs
+  )
+  
+  if (!is.null(object_dir)) qsave(res, obj_path)
+  
+  res
+}
+
+#' Plot UMAPs for example genes
+plot_examples <- function(so_in, gns, split = NULL, thm = NULL,
+                          clrs = c("#56B4E9", "white", "red")) {
+  gns %>%
+    map(~ {
+      res <- so_in %>%
+        FetchData(c("UMAP_1", "UMAP_2", split, .x)) %>%
+        arrange(!!sym(.x)) %>%
+        
+        ggplot(aes(UMAP_1, UMAP_2, fill = !!sym(.x))) +
+        geom_point_trace(size = 0.7, stroke = 0.5) +
+        scale_fill_gradientn(colours = clrs) +
+        guides(fill = guide_colorbar(ticks = FALSE, barheight = unit(150, "pt"), barwidth = unit(5, "pt"))) +
+        ggtitle(.x)
+      
+      if (!is.null(thm)) res <- res + thm
+      
+      if (!is.null(split)) {
+        res <- res +
+          facet_wrap(as.formula(str_c("~ ", split)))
+      }
+      
+      res +
+        theme(
+          plot.title      = element_text(hjust = 0.5, size = 24),
+          legend.position = "right"
+        )
+    })
+}
+
+#' Fetch genes for the provided annotations
+fetch_genes <- function(terms, mart) {
+  att  <- c("ensembl_gene_id", "external_gene_name")
+  names(terms) <- names(terms) %||% rep("go_parent_name", length(terms))
+  names(terms)[names(terms) == ""] <- "go_parent_name"
+  
+  res <- terms %>%
+    imap(~ {
+      getBM(
+        attributes = att,
+        filters    = .y,
+        values     = .x,
+        mart       = mart
+      ) %>%
+        pull(external_gene_name)
+    }) %>%
+    reduce(c) %>%
+    unique()
+  
+  res
+}
+
+#' Create boxplots summarizing pathway ligand/receptor expression
+create_pathway_boxes <- function(so_in, x = "sample", fill = "treatment",
+                                 x_lvls = sam_lvls,
+                                 fill_lvls = c("mock", "CHIKV"),
+                                 gns, cell_types, clr,
+                                 violin = FALSE) {
+  
+  # Fetch data
+  dat <- so_in %>%
+    FetchData(unique(c("sample", x, fill, "rep", "cell_type", gns))) %>%
+    as_tibble(rownames = ".cell_id") %>%
+    filter(cell_type %in% cell_types)
+  
+  treat_labs <- get_nlab_fun(dat, fill, l = " (", r = ")")
+  
+  dat <- dat %>%
+    pivot_longer(any_of(gns)) %>%
+    mutate(
+      # treatment  = fct_relevel(treatment, treats),
+      !!sym(x)  := fct_relevel(!!sym(x), x_lvls),
+      name       = fct_relevel(name, gns)
+    )
+  
+  # Set plot colors
+  fill_lvls <- fill_lvls[fill_lvls %in% dat[[fill]]]
+  
+  if (length(fill_lvls) == 3) {
+    # clrs <- 1 - ((seq_along(fill_lvls) - 1) / (length(fill_lvls) - 1))
+    # 
+    # clrs <- clrs %>%
+    #   map_chr(~ lighten(clr, .x))
+    
+    clrs <- c(
+      lighten(clr, 0.99),
+      lighten(clr, 0.7),
+      clr
+    )
+    
+    names(clrs) <- fill_lvls
+    
+  } else if (length(fill_lvls) == 2) {
+    clrs <- c(lighten(clr, 0.99), clr)
+    names(clrs) <- fill_lvls
+  }
+  
+  # Create boxplots
+  res <- dat %>%
+    ggplot(aes(!!sym(x), value, fill = !!sym(fill))) +
+    scale_fill_manual(values = clrs, labels = treat_labs) +
+    labs(
+      y = "expression",
+      title = str_c(gns, " - ", cell_types)
+    ) +
+    guides(fill = guide_legend(override.aes = list(shape = 22, size = 4))) +
+    theme(
+      plot.title   = element_text(size = 13),
+      axis.text.x  = element_blank(),
+      axis.title.y = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.title.x = element_blank(),
+      aspect.ratio = 1,
+      legend.text  = element_text(size = 12),
+      legend.title = element_blank(),
+      legend.position = "bottom",
+      legend.direction = "vertical"
+    )
+  
+  if (violin) {
+    res <- res +
+      geom_violin(
+        color = "black",
+        size  = 0.5,
+        draw_quantiles = c(0.25, 0.75)
+      ) +
+      stat_summary(
+        geom = "point",
+        fun  = median,
+        size = 2
+      )
+    
+  } else {
+    res <- res +
+      geom_boxplot(outlier.size = 0.5, key_glyph = draw_key_point)
+  }
+  
+  res
+}
+
+```
+
+```{r "CELLCHAT OBJECTS"}
+
+# Run CellChat for broad cell types
+cc <- so %>%
+  run_cellchat(
+    group_col  = "treatment",
+    cell_col   = "cell_type",
+    object_dir = so_dir
+  )
+
+# # Run CellChat for macrophage subsets
+# mac_cc <- so %>%
+#   run_cellchat(
+#     group_col  = "treatment",
+#     cell_col   = "cell_type",
+#     object_dir = so_dir,
+#     prefix     = "mac_",
+#     include_cols = c(
+#       "treatment", "sample", "rep", "cell_type",
+#       "mac_treat", "mac_treat_2", "mac_type"
+#     )
+#   )
+
+```
+
+```{r "TOTAL INTERACTIONS BARS", fig.width = 6, fig.height = 3}
+
+treat_cols <- c(
+  mock  = "#56B4E9",
+  CHIKV = "#D7301F"
+)
+
+mets <- c("count", "weight")
+
+mets %>%
+  map(~ {
+    cc$cellchat %>%
+      compareInteractions(
+        group       = c(1,2),
+        show.legend = FALSE,
+        color.use   = unname(treat_cols),
+        measure     = .x
+      )
+  }) %>%
+  Reduce(`+`, x = .)
+
+# Save plot
+file.path(params$fig_dir, "total_interactions_bars.png") %>%
+  ggsave(dpi = 300, width = 6, height = 3)
+
+```
+
+```{r "TOP INTERACTIONS BARS", fig.width = 6, fig.height = 3}
+
+cc$cellchat %>%
+  rankNet(
+    mode = "comparison",
+    stacked = TRUE,
+    do.stat = TRUE,
+    color.use = treat_cols,
+    do.flip   = FALSE
+  ) +
+  scale_y_reverse(expand = expansion(0)) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.line.y  = element_blank(),
+    axis.text.x  = element_text(angle = 90, vjust = 0.5)
+  )
+
+# Save plot
+file.path(params$fig_dir, "top_interactions_bars.png") %>%
+  ggsave(dpi = 300, width = 6, height = 3)
+
+```
+
+```{r "CHIKV TOTAL INTERACTIONS HEATMAP", fig.width = 6, fig.height = 5}
+
+file.path(params$fig_dir, "chikv_interactions_heat.png") %>%
+  png(res = 300, width = 6, height = 5, units = "in")
+
+cc$cc_objs$CHIKV %>%
+  netVisual_heatmap(color.heatmap = "Reds", measure = "weight")
+
+dev.off()
+
+```
+
+```{r "DIFF INTERACTIONS HEATMAP", fig.width = 6, fig.height = 5}
+
+# Table of differential pathways
+features.name <- "CHIKV"
+obj <- cc$cellchat
+
+net <- obj %>%
+  netMappingDEG(
+    features.name = features.name,
+    thresh = 1
+  )
+
+net.up <- obj %>%
+  subsetCommunication(
+    net            = net,
+    datasets       = features.name,
+    # signaling      = "IL4",
+    ligand.logFC   = 0.2,
+    receptor.logFC = NULL
+  )
+
+# Differential interaction strength
+file.path(params$fig_dir, "diff_interactions_heat.png") %>%
+  png(res = 300, width = 6, height = 5, units = "in")
+
+cc$cellchat %>%
+  netVisual_heatmap(measure = "weight")
+
+dev.off()
+
+```
+
+## T cell signaling
+
+```{r "T CELLS SIGNALING SCATTER PLOTS", fig.width = 5, fig.height = 4.5}
+
+cc$cellchat %>%
+  netAnalysis_signalingChanges_scatter(
+    idents.use = "T cells",
+    point.shape = rep(21, 3),
+    color.use   = rep(treat_cols[["CHIKV"]], 3)
+  ) +
+  geom_abline(slope = 1, intercept = 0, linetype = 2) +
+  scale_x_log10(limits = c(0.001, 0.3)) +
+  scale_y_log10(limits = c(0.001, 0.3)) +
+  theme(legend.position = "bottom", aspect.ratio = 0.9)
+
+# Save plot
+file.path(params$fig_dir, "Tcells_signaling_scatter.png") %>%
+  ggsave(dpi = 300, width = 5, height = 4.5)
+
+```
+
+```{r "T CELLS DIFF SIGNALING CIRCLE", fig.width = 7, fig.height = 6}
+
+file.path(params$fig_dir, "Tcells_diff_signaling_circle.png") %>%
+  png(res = 300, width = 6, height = 5, units = "in")
+
+cc$cellchat %>%
+  netVisual_diffInteraction(
+    sources.use = "T cells",
+    edge.width.max = 1
+  )
+
+dev.off()
+
+```
+
+```{r "IFN CIRCLE PLOT", fig.width = 6, fig.height = 5}
+
+paths <- c("IFN-II", "CCL", "CSF")
+
+paths %>%
+  walk(~ {
+    file.path(params$fig_dir, str_c(.x, "_Tcells_signaling_circle.png")) %>%
+      png(res = 300, width = 7, height = 6, units = "in")
+    
+    cc$cc_objs$CHIKV %>%
+      netVisual_aggregate(
+        signaling = .x,
+        sources.use = "T cells"
+      )
+    
+    dev.off()
+  })
+
+# paths <- c("IFN-II", "TNF", "IL6", "CSF", "IL4", "CXCL")
+# paths <- c("PTN", "PERIOSTIN", "ANGPTL", "GAS", "PDGF")
+# 
+# paths %>%
+#   walk(~ {
+#     file.path(params$fig_dir, str_c(.x, "_Tcells_signaling_circle.png")) %>%
+#       png(res = 300, width = 7, height = 6, units = "in")
+#     
+#     typs <- net.up %>%
+#       filter(pathway_name == .x) %>%
+#       pull(source) %>%
+#       unique()
+#     
+#     cc$cc_objs$CHIKV %>%
+#       netVisual_aggregate(signaling = .x, sources.use = typs)
+#     
+#     dev.off()
+#   })
+
+# file.path(params$fig_dir, "IFN_signaling_circle.png") %>%
+#   png(res = 300, width = 6, height = 5, units = "in")
+# 
+# cc$cc_objs$CHIKV %>%
+#   netVisual_aggregate(signaling = "IFN-II")
+# 
+# dev.off()
+
+```
+
+```{r "IFN UMAP", fig.width = 10, fig.height = 5}
+
+so %>%
+  mutate_meta(
+    mutate,
+    treatment = fct_relevel(treatment, names(treat_cols))
+  ) %>%
+  plot_features(
+    feature = "Ifng",
+    group_col = "treatment",
+    size = 0.5,
+    plot_colors = unname(treat_cols)
+  ) +
+  theme_void() +
+  theme(
+    strip.text = element_text(size = 16)
+  )
+
+file.path(params$fig_dir, "IFN_signaling_umap.png") %>%
+  ggsave(dpi = 300, width = 10, height = 5)
+
+```
+
+```{r "T CELL BOXPLOTS", fig.width = 6, fig.height = 3}
+
+gns  <- c("Ifng", "Ccl5", "Csf1")
+
+so %>%
+  FetchData(c("sample", "treatment", "rep", "cell_type", gns)) %>%
+  pivot_longer(all_of(gns)) %>%
+  filter(cell_type %in% "T cells") %>%
+  mutate(
+    treatment = fct_relevel(treatment, names(treat_cols)),
+    sample    = fct_relevel(sample, names(sam_cols)),
+    cell_type = fct_relevel(cell_type, typs),
+    name      = fct_relevel(name, gns)
+  ) %>%
+  ggplot(aes(sample, value, fill = treatment)) +
+  geom_boxplot(outlier.size = 0.5) +
+  scale_fill_manual(values = treat_cols) +
+  labs(y = "expression") +
+  facet_wrap(~ name, nrow = 1) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+# Save plot
+file.path(params$fig_dir, "Tcells_signaling_boxes.png") %>%
+  ggsave(dpi = 600, width = 8, height = 2.7)
+
+```
+
+```{r "IFN BOXPLOTS", fig.width = 10, fig.height = 5}
+
+gns  <- c("Ifng", "Ifngr1", "Ifngr2")
+typs <- c("T cells", "Macrophages", "Neutrophils", "Monocytes", "DC", "Fibroblasts")
+
+so %>%
+  FetchData(c("sample", "treatment", "rep", "cell_type", gns)) %>%
+  pivot_longer(all_of(gns)) %>%
+  filter(cell_type %in% typs) %>%
+  mutate(
+    treatment = fct_relevel(treatment, names(treat_cols)),
+    sample    = fct_relevel(sample, names(sam_cols)),
+    cell_type = fct_relevel(cell_type, typs)
+  ) %>%
+  ggplot(aes(sample, value, fill = treatment)) +
+  geom_boxplot(outlier.size = 0.5) +
+  scale_fill_manual(values = treat_cols) +
+  labs(y = "expression") +
+  facet_grid(name ~ cell_type) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+# Save plot
+file.path(params$fig_dir, "IFN_signaling_boxes.png") %>%
+  ggsave(dpi = 300, width = 10, height = 5)
+
+```
+
+## Macrophage signaling
+
+```{r "MACS SIGNALING SCATTER PLOTS", fig.width = 5, fig.height = 4.5}
+
+cc$cellchat %>%
+  netAnalysis_signalingChanges_scatter(
+    idents.use = "Macrophages",
+    point.shape = rep(21, 3),
+    color.use   = rep(treat_cols[["CHIKV"]], 3)
+  ) +
+  geom_abline(slope = 1, intercept = 0, linetype = 2) +
+  scale_x_log10(limits = c(0.0001, 1)) +
+  scale_y_log10(limits = c(0.0001, 1)) +
+  theme(legend.position = "bottom", aspect.ratio = 0.9)
+
+# Save plot
+file.path(params$fig_dir, "macrophages_signaling_scatter.png") %>%
+  ggsave(dpi = 300, width = 5, height = 4.5)
+
+```
+
+```{r "MACS DIFF SIGNALING CIRCLE", fig.width = 7, fig.height = 6}
+
+file.path(params$fig_dir, "macrophages_diff_signaling_circle.png") %>%
+  png(res = 300, width = 8, height = 7, units = "in")
+
+cc$cellchat %>%
+  netVisual_diffInteraction(
+    sources.use = "Macrophages",
+    # targets.use = "Macrophages",
+    edge.width.max = 1
+  )
+
+dev.off()
+
+```
+
+```{r "MACS CIRCLE PLOTS", fig.width = 7, fig.height = 6}
+
+paths <- c("TNF", "CCL", "PDGF", "CXCL", "OSM")
+
+paths %>%
+  walk(~ {
+    file.path(params$fig_dir, str_c(.x, "_macrophages_signaling_circle.png")) %>%
+      png(res = 300, width = 7, height = 6, units = "in")
+    
+    cc$cc_objs$CHIKV %>%
+      netVisual_aggregate(
+        signaling = .x,
+        sources.use = "Macrophages"
+      )
+    
+    dev.off()
+  })
+
+```
+
+```{r "MACS BOXPLOTS", fig.width = 6, fig.height = 5}
+
+gns  <- c("Tnf", "Cxcl2", "Cxcl16", "Cxcl1", "Ccl3", "Ccl4", "Pdgfb")
+
+so %>%
+  FetchData(c("sample", "treatment", "rep", "cell_type", gns)) %>%
+  pivot_longer(all_of(gns)) %>%
+  filter(cell_type %in% "Macrophages") %>%
+  mutate(
+    treatment = fct_relevel(treatment, names(treat_cols)),
+    sample    = fct_relevel(sample, names(sam_cols)),
+    cell_type = fct_relevel(cell_type, typs),
+    name      = fct_relevel(name, gns)
+  ) %>%
+  ggplot(aes(sample, value, fill = treatment)) +
+  geom_boxplot(outlier.size = 0.5) +
+  scale_fill_manual(values = treat_cols) +
+  labs(y = "expression") +
+  facet_wrap(~ name, nrow = 2) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+# Save plot
+file.path(params$fig_dir, "macrophages_signaling_boxes.png") %>%
+  ggsave(dpi = 300, width = 10, height = 5)
+
+```
+
+## Fibroblast signaling
+
+```{r "FIBROBLASTS DIFF SIGNALING CIRCLE", fig.width = 7, fig.height = 6}
+
+file.path(params$fig_dir, "fibroblasts_diff_signaling_circle.png") %>%
+  png(res = 300, width = 8, height = 7, units = "in")
+
+cc$cellchat %>%
+  netVisual_diffInteraction(
+    sources.use = "Fibroblasts",
+    # targets.use = "Fibroblasts",
+    edge.width.max = 1
+  )
+
+dev.off()
+
+```
+
+```{r "FIBROBLASTS SIGNALING SCATTER PLOTS", fig.width = 5, fig.height = 4.5}
+
+cc$cellchat %>%
+  netAnalysis_signalingChanges_scatter(
+    idents.use = "Fibroblasts",
+    point.shape = rep(21, 3),
+    color.use   = rep(treat_cols[["CHIKV"]], 3)
+  ) +
+  geom_abline(slope = 1, intercept = 0, linetype = 2) +
+  scale_x_log10(limits = c(0.00001, 0.3)) +
+  scale_y_log10(limits = c(0.00001, 0.3)) +
+  theme(legend.position = "bottom", aspect.ratio = 0.9)
+
+# Save plot
+file.path(params$fig_dir, "fibroblasts_signaling_scatter.png") %>%
+  ggsave(dpi = 300, width = 5, height = 4.5)
+
+```
+
+```{r "FIBROBLASTS CIRCLE PLOTS", fig.width = 7, fig.height = 6}
+
+paths <- c("CXCL", "ANGPTL", "PTN", "PERIOSTIN")
+
+paths %>%
+  walk(~ {
+    file.path(params$fig_dir, str_c(.x, "_fibroblasts_signaling_circle.png")) %>%
+      png(res = 300, width = 7, height = 6, units = "in")
+    
+    cc$cc_objs$CHIKV %>%
+      netVisual_aggregate(
+        signaling = .x,
+        sources.use = "Fibroblasts"
+      )
+    
+    dev.off()
+  })
+
+```
+
+```{r "FIBROBLASTS BOXPLOTS", fig.width = 6, fig.height = 5}
+
+gns  <- c("Angptl1", "Angptl2", "Ptn", "Postn")
+
+so %>%
+  FetchData(c("sample", "treatment", "rep", "cell_type", gns)) %>%
+  pivot_longer(all_of(gns)) %>%
+  filter(cell_type %in% "Fibroblasts") %>%
+  mutate(
+    treatment = fct_relevel(treatment, names(treat_cols)),
+    sample    = fct_relevel(sample, names(sam_cols)),
+    cell_type = fct_relevel(cell_type, typs),
+    name      = fct_relevel(name, gns)
+  ) %>%
+  ggplot(aes(sample, value, fill = treatment)) +
+  geom_boxplot(outlier.size = 0.5) +
+  scale_fill_manual(values = treat_cols) +
+  labs(y = "expression") +
+  facet_wrap(~ name, nrow = 1) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank()
+  )
+
+# Save plot
+file.path(params$fig_dir, "fibroblasts_signaling_boxes.png") %>%
+  ggsave(dpi = 600, width = 10, height = 3)
+
+```
+
+# 2022 Immunology RIP
+
+```{r}
+
+# Colors to use for circle plots
+cc_type_cols <- type_cols[sort(names(type_cols))]
+
+# Table of differential pathways
+net <- cc$cellchat %>%
+  netMappingDEG(
+    features.name = "CHIKV",
+    thresh = 1
+  )
+
+net_up <- cc$cellchat %>%
+  subsetCommunication(
+    net            = net,
+    datasets       = "CHIKV",
+    ligand.logFC   = 0.2,
+    receptor.logFC = NULL
+  ) %>%
+  filter(ligand.pvalues < 0.05)
+
+```
+
+```{r "differential cell type signaling scatter", fig.width = 4, fig.height = 4}
+
+# Cell types to exclude (<300 total cells)
+cc_typs <- so$cell_type %>%
+  table()
+
+exclude_typs <- cc_typs[cc_typs < 300] %>%
+  names()
+
+# Create scatter plot
+set.seed(42)
+
+cc$cellchat %>%
+  netAnalysis_diff_signalingRole_scatter(
+    color.use      = cc_type_cols,
+    idents.exclude = exclude_typs,
+    xlabel         = "Differential outgoing strength",
+    ylabel         = "Differential incoming strength"
+  ) +
+  theme(aspect.ratio = 0.9)
+
+ggsave(
+  file.path(params$fig_dir, "diff_sig_scatter.png"),
+  width  = 4,
+  height = 4,
+  dpi    = 500
+)
+
+# Create scatter plot with highlighted types
+highlight_typs <- c("Macrophages", "Neutrophils", "Fibroblasts")
+highlight_cols <- cc_type_cols
+
+highlight_cols[!names(highlight_cols) %in% highlight_typs] <- "#999999"
+
+set.seed(42)
+  
+cc$cellchat %>%
+  netAnalysis_diff_signalingRole_scatter(
+    color.use      = highlight_cols,
+    idents.exclude = exclude_typs,
+    xlabel         = "Differential outgoing strength",
+    ylabel         = "Differential incoming strength"
+  ) +
+  theme(aspect.ratio = 0.9)
+
+ggsave(
+  file.path(params$fig_dir, "diff_sig_scatter_highlight.png"),
+  width  = 4,
+  height = 4,
+  dpi    = 500
+)
+
+```
+
+## Arthritis pathways
+
+```{r "CHIKV circle plots"}
+
+# arth_paths <- c("CSF", "FASLG", "TGFb", "IL6", "CXCL", "CCL")
+arth_paths <- c("IFN-II", "TNF", "CSF")
+treat      <- "CHIKV"
+
+arth_paths %>%
+  walk(~ {
+    file.path(params$fig_dir, str_c(treat, "_", .x, "_circle.png")) %>%
+      png(res = 300, width = 7, height = 6, units = "in")
+
+    typs <- net_up %>%
+      filter(
+        pathway_name == .x,
+        pval < 0.05,
+        ligand.pvalues < 0.05
+      ) %>%
+      pull(source) %>%
+      unique()
+
+    cc$cc_objs[[treat]] %>%
+      netVisual_aggregate(
+        signaling   = .x,
+        sources.use = typs,
+        color.use   = cc_type_cols,
+        arrow.width = 2,
+        arrow.size  = 0.8
+      )
+
+    dev.off()
+  })
+
+```
+
+```{r "mock circle plots"}
+
+arth_paths[arth_paths != "IFN-II"]
+treat <- "mock"
+
+arth_paths %>%
+  walk(~ {
+    file.path(params$fig_dir, str_c(treat, "_", .x, "_circle.png")) %>%
+      png(res = 300, width = 7, height = 6, units = "in")
+
+    cc$cc_objs[[treat]] %>%
+      netVisual_aggregate(
+        signaling = .x,
+        color.use = cc_type_cols
+      )
+
+    dev.off()
+  })
+
+```
+
+```{r "IFN boxplots", fig.width = 8, fig.height = 4}
+
+bx_gns <- c(
+  "T cells"     = "Ifng",
+  "Macrophages" = "Ifngr1",
+  "Monocytes"   = "Ifngr1"
+)
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        x = "mac_treat_sample",
+        fill = "mac_treat_2",
+        x_lvls = mac_sam_lvls,
+        fill_lvls = mac_treat_lvls,
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "IFN_examples.png"),
+  width = 8, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+```{r "TNF boxplots", fig.width = 4, fig.height = 4}
+
+bx_gns <- c(
+  "Macrophages" = "Tnf",
+  "Mast cells"  = "Tnf",
+  "Macrophages" = "Tnfrsf1b",
+  "DC"          = "Tnfrsf1b"
+  # "Monocytes"   = "Tnfrsf1a"
+  # "T cells"     = "Tnfrsf1b"
+)
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        x = "mac_treat_2",
+        fill = "mac_treat_2",
+        x_lvls = mac_treat_lvls,
+        fill_lvls = mac_treat_lvls,
+        
+        
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      ) +
+      theme(aspect.ratio = 2, legend.text = element_text(size = 11))
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "TNF_examples.png"),
+  width = 8, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+```{r "Cxcl2 circle plots", fig.width = 7, fig.height = 6}
+
+typs <- net_up %>%
+  filter(
+    ligand == "Cxcl2",
+    ligand.pvalues < 0.02
+  ) %>%
+  pull(source) %>%
+  unique()
+
+file.path(params$fig_dir, "CHIKV_Cxcl2_circle.png") %>%
+  png(res = 300, width = 7, height = 6, units = "in")
+
+cc$cc_objs$CHIKV %>%
+  netVisual_individual(
+    signaling   = "CXCL",
+    pairLR.use  = "CXCL2_CXCR2",
+    sources.use = typs,
+    color.use   = cc_type_cols
+  )
+
+dev.off()
+
+
+
+
+
+# net_up %>%
+#   filter(pval < 0.05, ligand.pvalues < 0.05) %>%
+#   arrange(ligand.pvalues) %>%
+#   distinct(source, ligand, receptor, ligand.pvalues, ligand.logFC) %>%
+#   head(100)
+
+```
+
+```{r "Cxcl2 boxplots", fig.width = 8, fig.height = 4}
+
+bx_gns <- c(
+  "Macrophages" = "Cxcl2",
+  "Monocytes"   = "Cxcl2",
+  "DC"          = "Cxcl2",
+  "Fibroblasts" = "Cxcl2"
+)
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        x = "mac_treat_2",
+        fill = "mac_treat_2",
+        x_lvls = mac_treat_lvls,
+        fill_lvls = mac_treat_lvls,
+        
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      ) +
+      theme(
+        aspect.ratio = 1.8,
+        legend.text  = element_text(size = 11)
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "Cxcl2_examples.png"),
+  width = 8, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+```{r "Cxcl16 circle plots", fig.width = 7, fig.height = 6}
+
+typs <- net_up %>%
+  filter(
+    ligand == "Cxcl16",
+    ligand.pvalues < 0.02
+  ) %>%
+  pull(source) %>%
+  unique()
+
+file.path(params$fig_dir, "CHIKV_Cxcl16_circle.png") %>%
+  png(res = 300, width = 7, height = 6, units = "in")
+
+cc$cc_objs$CHIKV %>%
+  netVisual_individual(
+    signaling   = "CXCL",
+    pairLR.use  = "CXCL16_CXCR6",
+    sources.use = typs,
+    color.use   = cc_type_cols,
+    arrow.width = 2,
+    arrow.size  = 1,
+    edge.width.max = 6
+  )
+
+dev.off()
+
+```
+
+```{r "Cxcl16 boxplots", fig.width = 8, fig.height = 4}
+
+bx_gns <- c(
+  "Macrophages" = "Cxcl16",
+  "T cells"     = "Cxcr6"
+)
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        x = "mac_treat_sample",
+        fill = "mac_treat_2",
+        x_lvls = mac_sam_lvls,
+        fill_lvls = mac_treat_lvls,
+        
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      ) +
+      theme(
+        # aspect.ratio = 1.8,
+        legend.text  = element_text(size = 11)
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "Cxcl16_examples.png"),
+  width = 6, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+```{r "Csf boxplots", fig.width = 8, fig.height = 4}
+
+bx_gns <- c(
+  "T cells"     = "Csf1",
+  "Mast cells"  = "Csf1",
+  "Macrophages" = "Csf1r"
+)
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        x = "mac_treat_sample",
+        fill = "mac_treat_2",
+        x_lvls = mac_sam_lvls,
+        fill_lvls = mac_treat_lvls,
+        
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      ) +
+      theme(
+        # aspect.ratio = 1.8,
+        legend.text  = element_text(size = 11)
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "Csf_examples.png"),
+  width = 8, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+```{r "Ccl3 circle plots", fig.width = 7, fig.height = 6, eval = FALSE}
+
+typs <- net_up %>%
+  filter(
+    ligand == "Ccl3",
+    ligand.pvalues < 0.02
+  ) %>%
+  pull(source) %>%
+  unique()
+
+file.path(params$fig_dir, "CHIKV_Ccl3_circle.png") %>%
+  png(res = 300, width = 7, height = 6, units = "in")
+
+cc$cc_objs$CHIKV %>%
+  netVisual_individual(
+    signaling   = "CCL",
+    pairLR.use  = "CCL3_CCR1",
+    sources.use = typs,
+    color.use   = cc_type_cols
+  )
+
+dev.off()
+
+
+
+
+
+# net_up %>%
+#   filter(pval < 0.05, ligand.pvalues < 0.05) %>%
+#   arrange(ligand.pvalues) %>%
+#   distinct(source, ligand, receptor, ligand.pvalues, ligand.logFC) %>%
+#   head(100)
+
+```
+
+## Angiogenesis pathways
+
+```{r "angiogenesis circle plots"}
+
+arth_paths <- c("PDGF", "PTN", "ANGPTL", "OSM", "PERIOSTIN", "FGF")
+treat      <- "CHIKV"
+
+arth_paths %>%
+  walk(~ {
+    file.path(params$fig_dir, str_c(treat, "_", .x, "_circle.png")) %>%
+      png(res = 300, width = 7, height = 6, units = "in")
+
+    typs <- net_up %>%
+      filter(
+        pathway_name == .x,
+        pval < 0.05,
+        ligand.pvalues < 0.05
+      ) %>%
+      pull(source) %>%
+      unique()
+
+    cc$cc_objs[[treat]] %>%
+      netVisual_aggregate(
+        signaling   = .x,
+        sources.use = typs,
+        color.use   = cc_type_cols,
+        arrow.width = 2,
+        arrow.size  = 0.8
+      )
+
+    dev.off()
+  })
+
+```
+
+```{r "PDGF boxplots", fig.width = 8, fig.height = 4}
+
+bx_gns <- c(
+  "Endothelial cells" = "Pdgfb",
+  "Macrophages" = "Pdgfb"
+)
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        x = "mac_treat_sample",
+        fill = "mac_treat_2",
+        x_lvls = mac_sam_lvls,
+        
+        fill_lvls = mac_treat_lvls,
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "PDGF_examples.png"),
+  width = 6, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+```{r "PTN boxplots", fig.width = 8, fig.height = 4}
+
+bx_gns <- c("Fibroblasts" = "Ptn")
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        x          = "sample",
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "PTN_examples.png"),
+  width = 4, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+```{r "ANGPTL1 boxplots", fig.width = 8, fig.height = 4}
+
+bx_gns <- c(
+  "Fibroblasts" = "Angptl1",
+  "Fibroblasts" = "Angptl2",
+  "Macrophages" = "Pirb",
+  "Endothelial cells" = "Itga5"
+  # "Fibroblasts" = "Fgf"
+  # "Monocytes"   = "Itga1",
+  # "Endothelial cells" = "Itgb1"
+)
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        x = "mac_treat_sample",
+        fill = "mac_treat_2",
+        x_lvls = mac_sam_lvls,
+        fill_lvls = mac_treat_lvls,
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "ANGPTL_examples.png"),
+  width = 8, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+```{r "OSM boxplots", fig.width = 8, fig.height = 4}
+
+bx_gns <- c(
+  "Macrophages" = "Osm",
+  "Basophils"   = "Osm",
+  "Endothelial cells" = "Il6st",
+  "Endothelial cells" = "Lifr"
+  # "Neutrophils" = "Osm"
+)
+
+bx_gns %>%
+  imap(~ {
+    so %>%
+      create_pathway_boxes(
+        # x          = "sample",
+        x = "mac_treat_sample",
+        fill = "mac_treat_2",
+        x_lvls = mac_sam_lvls,
+        fill_lvls = mac_treat_lvls,
+        gns        = .x,
+        cell_types = .y,
+        clr        = type_cols[[.y]]
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    align    = "vh",
+    axis     = "trbl",
+    nrow     = 1
+  )
+
+ggsave(
+  file.path(params$fig_dir, "OSM_examples.png"),
+  width = 8, height = 4, dpi = 500, bg = "white"
+)
+
+```
+
+

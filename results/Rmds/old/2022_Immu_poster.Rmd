@@ -1,0 +1,1482 @@
+---
+title:  "CHIKV 28dpi scRNA-seq"
+author: "Ryan Sheridan"
+date:   "`r Sys.Date()`"
+output: 
+  html_document:
+    toc:       true
+    toc_float: true
+    toc_depth: 3
+    theme:     cosmo
+    highlight: kate
+
+params:
+  unenr_dir:    "results/2021-11-05"      # Directory containing unenriched data
+  enr_dir:      "results/2022-02-03"      # Directory containing CHIKV-enriched data
+  template_dir: "src"                     # Directory containing Rmd templates
+  table_dir:    "tables"                  # Directory to write tables
+  overwrite:    false                     # Should tables be overwritten if they already exist?
+  so_dir:       "~/Dropbox/Ryan/Projects" # Directory to write Seurat objects
+  metrics:      "count_metrics.csv"       # Cell Ranger metrics
+  gene_min:     250                       # Min number of detected genes per cell
+  gene_max:     5500                      # Max number of detected genes per cell
+  mito_max:     30                        # Max percentage mito reads per cells
+  rm_doublets:  true                      # Should doublets be removed using DoubletFinder?
+  type_res:     5                         # Clustering resolution for annotating cell types
+  mac_res:      1                         # Clustering resolution for annotating macrophages
+  lec_res:      5                         # Clustering resolution for annotating LECs
+  fib_res:      5                         # Clustering resolution for annotating fibroblasts/stromal cells
+  tm:           "28dpi"                   # Label for time point
+  
+  samples:
+    - "U1"
+    - "U2"
+    - "U3"
+    - "C1"
+    - "C2"
+    - "C3"
+---
+
+<br>
+
+```{r "setup", include = FALSE}
+
+# Default chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  echo    = FALSE,
+  dpi     = 300
+)
+
+# Adjust directory paths based on user input
+enr_dir   <- params$enr_dir
+unenr_dir <- params$unenr_dir
+
+if (enr_dir == "") enr_dir <- unenr_dir
+
+knitr::knit(here::here(unenr_dir, "Rmds/setup.Rmd"), output = "")
+
+other_pkgs <- c(
+  "clusterProfiler",
+  "enrichplot",
+  "msigdbr",
+  "DOSE",
+  "biomaRt",
+  "org.Mm.eg.db",
+  "qs"
+)
+
+walk(other_pkgs, library, character.only = TRUE)
+
+so_int <- qread(file.path(so_dir, "so_int.qs"))
+
+so_int@active.assay <- "RNA"
+
+```
+
+```{r "culemann gene lists"}
+
+# Gene lists from Culemann et al.
+culemann_genes <- list(
+  mock  = here("ref/2019_Culemann/table_s1.txt"),
+  CHIKV = here("ref/2019_Culemann/table_s2.txt")
+)
+
+culemann_genes <- culemann_genes %>%
+  map(~ {
+    read_delim(
+      file   = .x,
+      delim  = " ",
+      locale = locale(decimal_mark = ",")
+    )
+  })
+
+feat_lvls <- list(
+  mock = c(
+    "0" = "AQP1_interstitial",
+    "2" = "RELMa_interstitial",
+    "3" = "CX3CR1_lining",
+    "1" = "MHCII_interstitial",
+    "4" = "STMN1_proliferating",  # weak non-specific signal
+    "5" = "ACP5_osteoclast"
+  ),
+  CHIKV = c(
+    "1" = "CX3CR1_lining",
+    "2" = "RELMa_interstitial",
+    "0" = "CCR2_IL1B_infiltrating",
+    "4" = "CCR2_ARG1_infiltrating",
+    "3" = "MHCII_interstitial",
+    "6" = "STMN1_proliferating",
+    "5" = "MHCII_DCs"
+  )
+)
+
+culemann_genes <- culemann_genes %>%
+  imap(~ {
+    .x %>%
+      mutate(cluster = feat_lvls[[.y]][as.character(cluster)])
+  })
+
+feat_lvls <- list(
+  mock  = unname(feat_lvls$mock[1:3]),
+  CHIKV = unname(grep("infiltrating$", feat_lvls$CHIKV, value = TRUE))
+)
+
+# Format gene lists
+# Cx3cr1 is tagged with TdTomato
+feats <- culemann_genes %>%
+  imap(~ {
+    fts <- .x %>%
+      dplyr::select(gene, cluster) %>%
+      split(.$cluster) %>%
+      map(pull, gene)
+    
+    fts <- fts[names(fts) %in% feat_lvls[[.y]]]
+    fts <- fts[feat_lvls[[.y]]]
+    
+    fts %>%
+      map(~ {
+        .x[.x == "TdTomato"] <- "Cx3cr1"
+        .x[.x %in% VariableFeatures(so_int)]
+      })
+  })
+
+feats     <- flatten(feats)
+feat_lvls <- unlist(feat_lvls, use.names = FALSE)
+all_feats <- unique(unlist(feats))
+
+```
+
+```{r "theme"}
+
+theme_set(djvdj_theme())
+
+# ggplot2 themes
+txt_pt1  <- 10
+txt_pt2  <- 12
+ttl_pt1  <- 14
+ttl_pt2  <- 16
+ln_pt    <- 0.5
+ln_col   <- "grey85"
+cir_size <- 3.5
+sqr_size <- 4
+
+txt_theme_1 <- theme(
+  strip.text  = element_text(size = ttl_pt1),
+  legend.text = element_text(size = txt_pt1),
+  axis.title  = element_text(size = txt_pt2),
+  axis.text   = element_text(size = txt_pt1)
+)
+
+line_theme <- theme(
+  axis.line.x  = element_line(size = ln_pt, color = ln_col),
+  axis.line.y  = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.x = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.y = element_line(size = ln_pt, color = ln_col)
+)
+
+base_theme <- theme_cowplot() +
+  theme(
+    plot.title       = element_text(face = "plain", size = ttl_pt2),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "plain")
+  ) +
+  txt_theme_1 +
+  line_theme
+
+umap_theme <- base_theme +
+  theme(
+    axis.title   = element_blank(),
+    axis.line.x  = element_blank(),
+    axis.line.y  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text    = element_blank(),
+    aspect.ratio = 0.9
+  )
+
+box_theme <- base_theme +
+  theme(
+    legend.position = "none",
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    panel.border    = element_rect(fill = NA, color = ln_col, size = ln_pt),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    axis.title.x    = element_blank()
+  )
+
+fade_0 <- "#FAFAFA"
+fade_1 <- "#F0F0F0"
+fade_2 <- "#D9D9D9"
+
+hist_y_lab <- "number of cells"
+
+# alpha for plots
+al <- 0.7
+
+# Okabe Ito color palettes
+ito_cols <- c(
+  palette_OkabeIto[c(1:3, 5)], "#D7301F",
+  palette_OkabeIto[c(4, 6)],   "#6A51A3",
+  palette_OkabeIto[7],         "#875C04",
+  "#065D43", "#FFD6AD", "#00446E"
+)
+
+ito_cols <- ito_cols[3:length(ito_cols)] %>%
+  darken(0.2) %>%
+  c(ito_cols, ., "#686868", "#000000")
+
+# Set sample colors
+get_cols <- create_col_fun(ito_cols)
+
+sam_cols <- c(
+  "#00446E", "#0072B2", "#56B4E9",
+  "#d7301f", "#D55E00", "#E69F00"
+)
+
+names(sam_cols) <- sam_lvls[params$samples]
+
+treat_cols <- set_names(sam_cols[c(1, 4)], treats)
+
+# CHIKV treatment groups
+chikv_infctd <- so_df %>%
+  group_by(treatment) %>%
+  summarize(mn = mean(nCount_CHIKV), .groups = "drop") %>%
+  filter(mn == max(mn)) %>%
+  pull(treatment)
+
+# Cell type colors
+type_cols <- unique(so_df$cell_type)
+type_cols <- set_names(ito_cols[seq_along(type_cols)], type_cols)
+
+type_cols["unassigned"] <- "#999999"
+
+subtype_cols <- c(colnames(ref_lec), colnames(ref_fib))
+subtype_cols <- set_names(ito_cols[seq_along(subtype_cols)], subtype_cols)
+subtype_cols["unassigned"] <- "#999999"
+subtype_cols["other"]      <- fade_0
+
+# CHIKV clusters colors
+# c("#56B4E9", "#D7301F"),
+grp_cols <- set_names(
+  c("#56B4E9", "#0072B2"),
+  chikv_grps
+)
+
+grp_rep_cols <- grp_cols %>% 
+  imap(~ set_names(
+    rep(.x, n_rep),
+    str_c(.y, "-", 1:n_rep)
+  )) %>%
+  flatten_chr()
+
+# CHIKV cell type colors
+n_high <- so_df %>%
+  filter(chikv_grp == chikv_grps[2]) %>%
+  nrow()
+
+chikv_type_cols <- unique(so_df$cell_type)
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% names(subtype_cols)]
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% c(lec_cell_types, fib_cell_types)]
+
+avail_cols <- ito_cols[!ito_cols %in% subtype_cols]
+
+chikv_type_cols <- set_names(
+  avail_cols[seq_along(chikv_type_cols)],
+  chikv_type_cols
+)
+
+chikv_type_cols <- c(subtype_cols, chikv_type_cols)
+
+chikv_type_cols[chikv_grps[1]] <- fade_2
+
+# Macrophage cluster colors
+mac_clst_cols <- so_mac[[mac_clst_clmn]] %>%
+  pull(mac_clst_clmn) %>%
+  unique() %>%
+  as.numeric() %>%
+  sort() %>%
+  as.character()
+
+mac_clst_cols <- set_names(
+  ito_cols[seq_along(mac_clst_cols)],
+  mac_clst_cols
+)
+
+# UMAP themes
+mac_u_theme <- umap_theme +
+  theme(
+    aspect.ratio         = 0.7,
+    legend.position      = "bottom",
+    legend.justification = "center",
+    legend.title         = element_blank()
+  )
+
+int_u_theme <- mac_u_theme +
+  theme(aspect.ratio = 1)
+
+# Mac subset colors
+mac_typ_cols <- feat_lvls[!grepl("infiltrating$", feat_lvls)]
+
+mac_typ_cols <- set_names(
+  ito_cols[seq_along(mac_typ_cols)],
+  mac_typ_cols
+)
+
+mac_typ_cols["infiltrating"] <- "#0072B2"
+
+```
+
+```{r "functions"}
+
+plot_examples <- function(so_in, gns, split = NULL, thm = NULL,
+                          clrs = c("#56B4E9", "white", "red")) {
+  gns %>%
+    map(~ {
+      res <- so_in %>%
+        FetchData(c("UMAP_1", "UMAP_2", split, .x)) %>%
+        arrange(!!sym(.x)) %>%
+        
+        ggplot(aes(UMAP_1, UMAP_2, fill = !!sym(.x))) +
+        geom_point_trace(size = 0.7, stroke = 0.5) +
+        scale_fill_gradientn(colours = clrs) +
+        guides(fill = guide_colorbar(ticks = FALSE, barheight = unit(150, "pt"), barwidth = unit(5, "pt"))) +
+        ggtitle(.x)
+      
+      if (!is.null(thm)) res <- res + thm
+      
+      if (!is.null(split)) {
+        res <- res +
+          facet_wrap(as.formula(str_c("~ ", split)))
+      }
+      
+      res +
+        theme(
+          plot.title      = element_text(hjust = 0.5, size = 24),
+          legend.position = "right"
+        )
+    })
+}
+
+#' Fetch genes for the provided annotations
+fetch_genes <- function(terms, mart) {
+  att  <- c("ensembl_gene_id", "external_gene_name")
+  names(terms) <- names(terms) %||% rep("go_parent_name", length(terms))
+  names(terms)[names(terms) == ""] <- "go_parent_name"
+  
+  res <- terms %>%
+    imap(~ {
+      getBM(
+        attributes = att,
+        filters    = .y,
+        values     = .x,
+        mart       = mart
+      ) %>%
+        pull(external_gene_name)
+    }) %>%
+    reduce(c) %>%
+    unique()
+  
+  res
+}
+
+```
+
+## Figure 1
+
+```{r "fig 1A", fig.width = 10, fig.height = 8}
+
+typ_labs <- get_nlab_fun(so, "cell_type", l = " (", r = ")")
+tot_lab  <- get_nlab_fun(so)
+
+# Cell type UMAP
+typ_u <- so %>%
+  plot_features(
+    feature = "cell_type",
+    plot_colors = type_cols,
+    plot_lvls   = names(type_cols),
+    size = 0.25
+  ) +
+  annotate("text", x = Inf, y = Inf, label = tot_lab, hjust = 1, vjust = 1, size = 13 / .pt) +
+  umap_theme +
+  theme(legend.position = "none")
+
+# Cell type bar graph
+typ_bars <- so@meta.data %>%
+  mutate(
+    cell_type = fct_relevel(cell_type, names(typ_labs())),
+    treatment = fct_relevel(treatment, unique(treats))
+  ) %>%
+  arrange(cell_type) %>%
+  ggplot(aes(rep, fill = cell_type)) +
+  geom_bar(position = "fill", key_glyph = draw_key_point) +
+  facet_wrap(~ treatment) +
+  scale_fill_manual(values = type_cols[names(typ_labs())], labels = typ_labs) +
+  scale_y_continuous(expand = expansion(c(0.05, 0.02))) +
+  guides(fill = guide_legend(
+    override.aes = list(shape = 22, size = 4),
+    ncol = 3
+  )) +
+  theme_void() +
+  theme(
+    aspect.ratio = 3,
+    legend.position = "bottom",
+    legend.title    = element_blank(),
+    legend.text     = element_text(size = 13),
+    strip.text      = element_text(size = 16, vjust = 0)
+  )
+
+lgd <- get_legend(typ_bars)
+
+typ_bars <- typ_bars +
+  theme(legend.position = "none")
+
+# Create final figure
+fig <- plot_grid(
+  typ_u, typ_bars,
+  nrow       = 1,
+  rel_widths = c(1, 0.5),
+  align      = "h",
+  axis       = "tb"
+)
+
+plot_grid(
+  fig, lgd,
+  ncol = 1,
+  rel_heights = c(1, 0.25)
+)
+
+```
+
+```{r "fig 1B", fig.width = 15, fig.height = 9}
+
+# Plot theme
+treat_theme <- umap_theme +
+  theme(
+    legend.position = "none",
+    strip.text      = element_text(size = 24, vjust = 0)
+  )
+
+# Cell type UMAP
+treat_u <- so %>%
+  plot_features(
+    feature     = "treatment",
+    plot_colors = treat_cols,
+    plot_lvls   = rev(treats),
+    size        = 0.25
+  ) +
+  # annotate("text", x = Inf, y = Inf, label = tot_lab, hjust = 1, vjust = 1) +
+  treat_theme
+
+treat_u_2 <- so %>%
+  plot_features(
+    feature     = "treatment",
+    plot_colors = treat_cols,
+    plot_lvls   = treats,
+    size        = 0.0001
+  ) +
+  facet_wrap(~ treatment, ncol = 1) +
+  treat_theme
+
+# Create final figure
+plot_grid(
+  treat_u, treat_u_2,
+  nrow       = 1,
+  rel_widths = c(1, 0.5),
+  align      = "h",
+  axis       = "tb"
+)
+
+```
+
+## Figure 2
+
+```{r "DEGs"}
+
+# DEGs
+deg_path <- here(params$unenr_dir, params$table_dir, "poster_degs.tsv")
+
+if (!file.exists(deg_path)) {
+  typs <- c("Macrophages", "Fibroblasts", "T cells")
+  
+  type_degs <- typs %>%
+    map_dfr(~ {
+      s <- so %>%
+        subset(cell_type == .x)
+      
+      Idents(s) <- s$treatment
+      
+      s %>%
+        FindConservedMarkers(
+          ident.1      = "CHIKV",
+          grouping.var = "rep"
+        ) %>%
+        as_tibble(rownames = "gene") %>%
+        mutate(cell_type = .x)
+    })
+  
+  type_degs %>%
+    write_tsv(deg_path)
+} else {
+  type_degs <- read_tsv(deg_path)
+}
+
+# Format DEG data.frame
+fc_clmns <- grep("_avg_log2FC$", colnames(type_degs), value = TRUE)
+
+deg_dat <- type_degs %>%
+  rowwise() %>%
+  mutate(
+    min_FC = min(abs(c(!!!syms(fc_clmns)))),
+    min_FC = c(!!!syms(fc_clmns))[abs(c(!!!syms(fc_clmns))) == min_FC]
+  ) %>%
+  ungroup() %>%
+  filter(minimump_p_val < 0.05) %>%
+  arrange(desc(min_FC))
+
+# Get human homologs
+h_mart <- useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
+m_mart <- useEnsembl("ensembl", dataset = "mmusculus_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
+
+hlogs <- getLDS(
+  filters     = "external_gene_name",
+  values      = unique(deg_dat$gene),
+  attributes  = c("external_gene_name", "entrezgene_id"),
+  attributesL = c("external_gene_name", "entrezgene_id"),
+  mart        = h_mart,
+  martL       = m_mart
+) %>%
+  rename_with(.cols = ends_with(".1"),       ~ str_replace(.x, ".1$", "_mm")) %>%
+  rename_with(.cols = matches("^Gene.name"), ~ str_replace(.x, "^[^_]+", "gene")) %>%
+  rename_with(.cols = matches("^NCBI"),      ~ str_replace(.x, "^[^_]+", "entrez"))
+
+# Macrophage DEGs
+mac_degs <- deg_dat %>%
+  filter(cell_type == "Macrophages") %>%
+  arrange(desc(min_FC)) %>%
+  left_join(hlogs, by = c(gene = "gene_mm")) %>%
+  filter(!is.na(entrez)) %>%
+  distinct(gene, entrez, min_FC) %>%
+  arrange(desc(min_FC))
+
+# GSEA analysis using DOSE database
+set.seed(42)
+
+gsea_res <- set_names(mac_degs$min_FC, mac_degs$entrez)
+
+gsea_res <- gsea_res %>%
+  gseDO() %>%
+  setReadable("org.Hs.eg.db", "ENTREZID")
+
+```
+
+```{r "fig 2", fig.width = 8, fig.height = 4}
+
+# GSEA tree
+gsea_res %>%
+  pairwise_termsim() %>%
+  treeplot(
+    showCategory = 10,
+    nCluster = 4,
+    group_color = lighten(ito_cols[1:4], 0.1)
+  ) +
+  theme(
+    legend.position = "bottom"
+  ) +
+  guides(
+    color = guide_colorbar(
+      ticks = FALSE,
+      barheight = unit(10, "pt"),
+      title = "p-value",
+      title.position = "top",
+      label.theme = element_text(size = 6, angle = 90, hjust = 1)
+    ),
+    size = guide_legend(
+      label.position = "bottom",
+      title.position = "top",
+      title = "overlap"
+    )
+  ) +
+  scale_size_continuous(range = c(3, 5)) +
+  scale_color_gradientn(colours = c(lighten(ito_cols[5], 0.6), ito_cols[5]))
+
+```
+
+## Figure 3
+
+```{r "fig 3", fig.width = 10, fig.height = 6}
+
+pseudo <- so$tot_pct_CHIKV
+pseudo <- min(pseudo[pseudo > 0]) / 2
+
+# CHIKV signal UMAP
+chikv_u <- so@meta.data %>%
+  arrange(tot_pct_CHIKV) %>%
+  ggplot(aes(UMAP_1, UMAP_2, fill = tot_pct_CHIKV + pseudo)) +
+  geom_point_trace(
+    size  = 1.5,
+    color = NA,
+    trace_position    = tot_pct_CHIKV > 0,
+    background_params = list(size = 0.2, stroke = 0.5, color = "black")
+  ) +
+  guides(fill = guide_colorbar(
+    title          = "% CHIKV counts",
+    ticks          = FALSE,
+    barheight      = unit(5, "pt"),
+    title.position = "top",
+    label.theme    = element_text(angle = 45, hjust = 1, size = 6)
+  )) +
+  scale_fill_gradientn(colours = c("white", ito_cols[5]), trans = "log10") +
+  umap_theme +
+  theme(
+    legend.position = "top",
+    legend.justification = "center"
+  )
+
+# CHIKV signal bar graphs
+bar_dat <- so@meta.data %>%
+  filter(tot_pct_CHIKV > 0) %>%
+  mutate(cell_type = fct_infreq(cell_type))
+
+bar_labs <- get_nlab_fun(bar_dat, "cell_type", l = "\n", r = "")
+
+chikv_bars <- bar_dat %>%
+  ggplot(aes(orig.ident, fill = cell_type)) +
+  geom_bar(position = "fill", key_glyph = draw_key_point) +
+  scale_fill_manual(values = type_cols[names(type_cols) %in% bar_dat$cell_type], labels = bar_labs) +
+  guides(fill = guide_legend(
+    override.aes = list(shape = 22, size = 4),
+    keyheight = unit(30, "pt")
+  )) +
+  theme_void() +
+  theme(
+    legend.title = element_blank(),
+    legend.text  = element_text(size = 13)
+  )
+
+# Create final figure
+plot_grid(
+  chikv_u, chikv_bars,
+  nrow = 1,
+  rel_widths = c(1, 0.5),
+  align = "h",
+  axis = "tb"
+)
+
+```
+
+## Figure 4
+
+```{r "fig 4A", fig.width = 11.25, fig.height = 5.6}
+
+# Create mac subset UMAPs
+create_subset_umap <- function(so_in, sub_clmn, clrs) {
+  
+  sub_labs <- get_nlab_fun(so_in, sub_clmn, l = " (", r = ")")
+  
+  res <- so_in %>%
+    mutate_meta(mutate, mac_type = fct_relevel(mac_type, rev(names(clrs)))) %>%
+    plot_features(feature = sub_clmn, size = 0.7) +
+    scale_color_manual(values = clrs, labels = sub_labs) +
+    guides(color = guide_legend(ncol = 1, override.aes = list(size = 3))) +
+    int_u_theme +
+    theme(
+      plot.title  = element_text(hjust = 0.5, size = 20),
+      legend.text = element_text(size = 14)
+    )
+  
+  res
+}
+
+so_int <- so_int %>%
+  mutate_meta(mutate, mac_type = replace_na(mac_type, "unassigned"))
+
+u_clrs <- mac_typ_cols
+u_clrs["unassigned"] <- "grey75"
+
+u <- treats %>%
+  map(~ {
+    so_int %>%
+      subset(treatment == .x) %>%
+      create_subset_umap("mac_type", u_clrs) +
+      ggtitle(.x)
+  })
+
+# Create mac subset bargraphs
+br <- so_int@meta.data %>%
+  mutate(treatment = fct_relevel(treatment, treats)) %>%
+  ggplot(aes(sample, fill = mac_type)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ treatment, scales = "free") +
+  scale_fill_manual(values = u_clrs) +
+  scale_y_continuous(expand = expansion(0)) +
+  scale_x_discrete(labels = (function(x) str_remove(x, str_c("-", params$tm)))) +
+  base_theme +
+  theme(
+    aspect.ratio    = 3,
+    legend.position = "none",
+    strip.text      = element_text(size = 20),
+    axis.title      = element_blank(),
+    axis.text       = element_blank(),
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    axis.ticks.x    = element_blank(),
+    axis.ticks.y    = element_blank()
+  )
+
+# Create final figure
+plot_grid(
+  plotlist = append(u, list(br)),
+  nrow  = 1,
+  align = "vh",
+  axis  = "trbl",
+  rel_widths = c(1, 1, 0.7)
+)
+
+# Boxplots showing module score for assigned subsets
+# so_int@meta.data %>%
+#   pivot_longer(all_of(feat_lvls)) %>%
+#   ggplot(aes(mac_type, value, fill = mac_type)) +
+#   geom_boxplot() +
+#   facet_wrap(~ name, scales = "free_y") +
+#   scale_fill_manual(values = mac_typ_cols) +
+#   base_theme +
+#   theme(
+#     axis.text.x     = element_text(angle = 45, hjust = 1),
+#     axis.title      = element_blank(),
+#     legend.position = "none"
+#   )
+
+```
+
+```{r "fig 4B", fig.width = 15, fig.height = 4}
+
+# proinflammatory cytokines
+gns <- c("Aqp1", "Cx3cr1", "Retnla", "Il1b", "Tnf")
+
+so_int %>%
+  mutate_meta(mutate, treatment = fct_relevel(treatment, treats)) %>%
+  plot_examples(gns, thm = int_u_theme, clrs  = c("#56B4E9", "white", "#D7301F")) %>%
+  plot_grid(plotlist = ., nrow = 1)
+
+```
+
+## Figure 5
+
+```{r "fig 5", fig.width = 15, fig.height = 7}
+
+legd_txt <- 20
+
+# Set CHIKV+ clusters
+# based on fraction of CHIKV+ cells
+# SET CUTOFF AS MEDIAN FOR CLUSTERS
+# frac_lim <- 0.01329938
+frac_lim <- 0.012
+
+# so_int <- so_int %>%
+so_int <- so_int %>%
+  mutate_meta(~ {
+    .x %>%
+      group_by(!!sym(mac_clst_clmn), treatment) %>%
+      mutate(
+        chikv_grp  = ifelse(tot_nCount_CHIKV > 0, chikv_grps[2], chikv_grps[1]),
+        frac_chikv = length(chikv_grp[chikv_grp == chikv_grps[2]]) / n(),
+        chikv_clst_grp = ifelse(
+          frac_chikv > frac_lim,
+          chikv_grps[2],
+          chikv_grps[1]
+        )
+      ) %>%
+      ungroup()
+  })
+
+# Plot CHIKV signal
+u_dat <- so_int@meta.data %>%
+  filter(treatment == treats[2]) %>%
+  mutate(chikv_clst_grp = fct_relevel(chikv_clst_grp, chikv_grps))
+
+counts_u <- u_dat %>%
+  arrange(tot_nCount_CHIKV) %>%
+  ggplot(aes(UMAP_1, UMAP_2, fill = tot_nCount_CHIKV + 1)) +
+  geom_point_trace(
+    trace_position = tot_nCount_CHIKV > 0,
+    color = NA,
+    size  = 3,
+    background_params = list(color = "black", size = 2)
+  ) +
+  scale_color_manual(values = mac_typ_cols) +
+  scale_fill_gradientn(colours = c("white", "#d7301f"), trans = "log10") +
+  guides(fill = guide_colorbar(
+    barwidth = unit(150, "pt"),
+    barheight = unit(6, "pt"),
+    ticks = FALSE,
+    title = "CHIKV counts + 1",
+    title.position = "top"
+  )) +
+  umap_theme +
+  theme(
+    legend.position      = "top",
+    legend.justification = "center",
+    legend.title         = element_text(size = legd_txt)
+  )
+
+# Plot CHIKV+ clusters
+clst_labs <- get_nlab_fun(u_dat, "chikv_clst_grp", l = " clusters\n(")
+u_clrs    <- grp_cols
+u_clrs[1] <- lighten("#009E73", 0.2)
+
+clst_grp_u <- u_dat %>%
+  # mutate(chikv_clst_grp = fct_relevel(chikv_clst_grp, chikv_grps)) %>%
+  # plot_features(feature = "chikv_clst_grp", size = 1) +
+  plot_scatter("chikv_clst_grp", plot_lvls = chikv_grps, size = 1) +
+  scale_color_manual(values = u_clrs, labels = clst_labs) +
+  guides(color = guide_legend(keyheight = unit(45, "pt"), override.aes = list(size = 4))) +
+  umap_theme +
+  theme(
+    legend.title         = element_blank(),
+    legend.position      = "top",
+    legend.direction     = "vertical",
+    legend.justification = "center"
+    # legend.text          = element_text(size = legd_txt)
+  )
+
+# CHIKV+ clusters bar graphs
+clst_bars <- u_dat %>%
+  filter(mac_type != "unassigned") %>%
+  ggplot(aes(rep, fill = mac_type)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ chikv_clst_grp) +
+  # scale_fill_manual(values = mac_typ_cols) +
+  guides(fill = guide_legend(keyheight = unit(20, "pt"))) +
+  theme_void() +
+  theme(
+    legend.position  = "top",
+    legend.title     = element_blank(),
+    strip.text       = element_text(size = legd_txt),
+    legend.direction = "vertical",
+    legend.text      = element_text(size = legd_txt),
+    aspect.ratio     = 2.5
+  )
+
+# Create final figure
+plot_grid(
+  counts_u, clst_grp_u, clst_bars,
+  align = "vh",
+  axis  = "trbl",
+  nrow  = 1,
+  rel_widths = c(1, 1, 0.75)
+)
+
+# u_dat %>%
+#   arrange(tot_nCount_CHIKV) %>%
+#   ggplot(aes(UMAP_1, UMAP_2, fill = tot_nCount_CHIKV + 1)) +
+#   geom_point_trace(
+#     trace_position = chikv_clst_grp == chikv_grps[2]
+#     # background_params = list(fill = grp_cols[1], color = NA)
+#   ) +
+#   scale_fill_gradientn(colours = c("white", grp_cols[2]), trans = "log10") +
+#   umap_theme +
+#   theme(
+#     legend.title     = element_blank(),
+#     legend.direction = "vertical",
+#     legend.position  = "top",
+#     legend.text      = element_text(size = 12)
+#   )
+
+```
+
+## Figure 6
+
+```{r "fig 6A", fig.width = 8, fig.height = 3}
+
+# CHIKV+ clusters DEGS
+Idents(so_int) <- so_int$chikv_clst_grp
+
+clst_deg_file <- here(params$unenr_dir, params$table_dir, "chikv-high_degs.tsv")
+
+if (!file.exists(clst_deg_file)) {
+  clst_degs <- so_int %>%
+    subset(treatment == treats[2]) %>%
+    FindConservedMarkers(
+      ident.1 = chikv_grps[2],
+      grouping.var = "rep"
+    ) %>%
+    as_tibble(rownames = "gene")
+  
+  fc_clmns <- grep("_avg_log2FC$", colnames(clst_degs), value = TRUE)
+  
+  clst_degs <- clst_degs %>%
+    rowwise() %>%
+    mutate(
+      min_FC = min(abs(c(!!!syms(fc_clmns)))),
+      min_FC = c(!!!syms(fc_clmns))[abs(c(!!!syms(fc_clmns))) == min_FC]
+    ) %>%
+    ungroup() %>%
+    filter(minimump_p_val < 0.05) %>%
+    arrange(desc(min_FC))
+  
+  clst_degs %>%
+    write_tsv(clst_deg_file)
+  
+} else {
+  clst_degs <- read_tsv(clst_deg_file)
+}
+
+# Get human homologs
+hlogs <- getLDS(
+  filters     = "external_gene_name",
+  values      = unique(clst_degs$gene),
+  attributes  = c("external_gene_name", "entrezgene_id"),
+  attributesL = c("external_gene_name", "entrezgene_id"),
+  mart        = h_mart,
+  martL       = m_mart
+) %>%
+  rename_with(.cols = ends_with(".1"),       ~ str_replace(.x, ".1$", "_mm")) %>%
+  rename_with(.cols = matches("^Gene.name"), ~ str_replace(.x, "^[^_]+", "gene")) %>%
+  rename_with(.cols = matches("^NCBI"),      ~ str_replace(.x, "^[^_]+", "entrez"))
+
+# Macrophage DEGs
+gsea_degs <- clst_degs %>%
+  arrange(desc(min_FC)) %>%
+  left_join(hlogs, by = c(gene = "gene_mm")) %>%
+  filter(!is.na(entrez)) %>%
+  distinct(gene, entrez, min_FC) %>%
+  arrange(desc(min_FC))
+
+# GSEA analysis using DOSE database
+set.seed(42)
+
+gsea_res <- set_names(gsea_degs$min_FC, gsea_degs$entrez)
+
+gsea_res <- gsea_res %>%
+  gseDO() %>%
+  setReadable("org.Hs.eg.db", "ENTREZID")
+
+gsea_res %>%
+  head(6) %>%
+  mutate(Description = fct_reorder(Description, p.adjust, min, .desc = TRUE)) %>%
+  ggplot(aes(Description, -log10(p.adjust))) +
+  geom_col(fill = "#6A51A3", alpha = 0.7) +
+  labs(y = "-log10(p-value)") +
+  scale_y_continuous(expand = expansion(c(0.02, 0.05))) +
+  coord_flip() +
+  theme(
+    aspect.ratio = 0.3,
+    panel.border = element_blank(),
+    axis.line.x  = element_line(size = 0.5, color = "grey85"),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.y  = element_text(size = 16, hjust = 1),
+    axis.title.x = element_text(size = 16)
+  )
+
+```
+
+```{r "fig 6B", fig.width = 10, fig.height = 6.5}
+
+# gns <- c("Nlrp3", "Tlr2", "Mdm2", "Plau", "Slamf7")
+gns <- c("Nlrp3", "Tlr2", "Mdm2", "Slamf7")
+
+gn_boxes <- gns %>%
+  map(~ {
+    d <- so_int %>%
+      FetchData(c("UMAP_1", "UMAP_2", "chikv_clst_grp", "rep", "treatment", .x)) %>%
+      filter(treatment == treats[2]) %>%
+      mutate(chikv_clst_grp = fct_relevel(chikv_clst_grp, chikv_grps))
+    
+    u <- d %>%
+      plot_features(
+        feature = .x,
+        plot_colors = c("#56B4E9", "white", "#6A51A3"),
+        size = 0.7
+      ) +
+      guides(color = guide_colorbar(title.position = "top", barheight = unit(6, "pt"), barwidth = unit(100, "pt"), ticks = FALSE)) +
+      umap_theme +
+      theme(
+        legend.position = "top",
+        legend.justification = "center",
+        legend.title = element_text(size = 20)
+      )
+    
+    bx <- d %>%
+      ggplot(aes(rep, !!sym(.x), fill = chikv_clst_grp)) +
+      geom_boxplot(outlier.size = 0.25) +
+      scale_fill_manual(values = u_clrs) +
+      facet_wrap(~ chikv_clst_grp) +
+      theme(
+        legend.position = "none",
+        panel.border    = element_blank(),
+        axis.line.y     = element_line(color = "grey85", size = 0.5),
+        axis.title.x    = element_blank(),
+        axis.text.x     = element_blank(),
+        axis.ticks.x    = element_blank()
+      )
+    
+    plot_grid(
+      u, bx,
+      align = "vh",
+      axis  = "trbl",
+      nrow = 1,
+      rel_widths = c(1, 0.82)
+    )
+  })
+
+plot_grid(
+  plotlist = gn_boxes,
+  align = "vh",
+  axis  = "trbl",
+  ncol  = 2
+)
+
+# gns <- gsea_res@result %>%
+#   filter(Description == "arthritis") %>%
+#   pull(core_enrichment)
+# 
+# gns <- gns %>%
+#   str_split("/") %>%
+#   flatten() %>%
+#   as.character()
+# 
+# gns <- hlogs %>%
+#   filter(gene %in% gns) %>%
+#   pull(gene_mm)
+
+# gns[1:16] %>%
+#   map(~ {
+#     if (!.x %in% rownames(x@assays$RNA)) return(NULL)
+#     
+#     so_int %>%
+#       FetchData(c(.x, "UMAP_1", "UMAP_2", "treatment", "chikv_clst_grp")) %>%
+#       arrange(!!sym(.x)) %>%
+#       ggplot(aes(UMAP_1, UMAP_2, color = !!sym(.x))) +
+#       geom_point(size = 0.25) +
+#       scale_color_gradientn(colours = c("blue", "white", "red")) +
+#       umap_theme
+#   }) %>%
+#   plot_grid(
+#     plotlist = .,
+#     align = "vh",
+#     axis  = "trbl"
+#   )
+
+```
+
+
+
+
+
+```{r "fig 5A OLD", fig.height = 4, fig.width = 10, eval = FALSE}
+
+# Gene differentially expressed in CHIKV-infected samples
+chikv_degs <- names(mac_typ_cols) %>%
+  map_dfr(~ {
+    Idents(so_int) <- so_int$treatment
+    
+    so_int %>%
+      subset(mac_type == .x) %>%
+      find_conserved_markers(
+        ident_1 = "CHIKV",
+        ident_2 = "mock",
+        grp_var = "rep",
+        fc_range = c(-Inf, Inf)
+      ) %>%
+      mutate(mac_type = .x)
+  })
+
+# Format data for plotting
+fc <- 1.15
+
+plt_degs <- chikv_degs %>%
+  mutate(
+    class = case_when(
+      avg_log2FC > log2(fc)  ~  "up",
+      avg_log2FC < -log2(fc) ~ "down",
+      TRUE                    ~ "ns"
+    ),
+    type_class = ifelse(grepl("_interstitial", mac_type), "interstitial", mac_type),
+    mac_type = ifelse(class == "ns", class, mac_type)
+  ) %>%
+  filter(class != "ns")
+
+# Genes to label
+lab_gns <- c(
+  "Nlrp3", "Il1b", "Cd74",
+  "Slamf7", "Cxcl2"
+)
+
+lab_dat <- plt_degs %>%
+  filter(gene %in% lab_gns) %>%
+  group_by(gene) %>%
+  filter(mac_type == ifelse(
+    "infiltrating" %in% mac_type,
+    "infiltrating",
+    mac_type[max_pval == min(max_pval)]
+  )) %>%
+  ungroup()
+
+# Create volcano plot
+vol_dat %>%
+  ggplot(aes(avg_log2FC, -log10(max_pval), color = mac_type)) +
+  geom_point(size = 2) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_hline(yintercept = -log10(0.05), linetype = 2) +
+  
+  geom_label_repel(
+    data = lab_dat,
+    aes(label = gene),
+    key_glyph = "point"
+  ) +
+  labs(x = "log2(FC)", y = "-log10(p-value)") +
+  scale_color_manual(values = mac_typ_cols) +
+  base_theme +
+  theme(
+    axis.line = element_blank(),
+    panel.border = element_rect(fill = NA, color = "grey85"),
+    legend.title = element_blank(),
+    legend.position = "left"
+  )
+
+# lab_gns <- "S100A8/APOE/ICAM1/IL1RN/TNFRSF1B/PLAU/VIM/CCR2/CD83/BCL2L11/OSM/IL10/ENO1/REL/CCL3/MCL1/NFKB1/CD274/TAP2/SPP1/CD28/CFLAR/IL17RA/LRP1/LCP2/FAS/PTGS2/IL1A/PSTPIP1/COTL1/SLC11A1/HEXB/PRDM1"
+# lab_gns <- lab_gns %>%
+#   str_split("/") %>%
+#   flatten() %>%
+#   as.character()
+# lab_gns <- hlogs %>%
+#   filter(gene %in% lab_gns) %>%
+#   pull(gene_mm)
+
+```
+
+```{r "fig 5B OLD", fig.height = 3.75, fig.width = 10, eval = FALSE}
+
+plt_vars <- c(
+  "orig.ident", "treatment",
+  "rep", "mac_type", lab_gns
+)
+
+bx_dat <- so_int %>%
+  FetchData(plt_vars) %>%
+  filter(!is.na(mac_type)) %>%
+  pivot_longer(all_of(lab_gns)) %>%
+  mutate(
+    treatment = fct_relevel(treatment, treats),
+    mac_type  = fct_relevel(mac_type, names(mac_typ_cols))
+  )
+  
+bx_dat %>%
+  ggplot(aes(mac_type, value, alpha = treatment, fill = mac_type)) +
+  geom_boxplot(outlier.size = 0.25, outlier.alpha = 1, key_glyph = draw_key_point) +
+  facet_wrap(~ name, nrow = 1, scales = "free_y") +
+  scale_alpha_manual(values = c(0.25, 1)) +
+  scale_fill_manual(values = mac_typ_cols) +
+  guides(fill = "none") +
+  guides(alpha = guide_legend(override.aes = list(size = 5, fill = "black", shape = 22))) +
+  djvdj_theme() +
+  theme(
+    legend.position = "top",
+    legend.title    = element_blank(),
+    axis.text.x     = element_text(angle = 90, hjust = 1),
+    axis.title      = element_blank()
+  )
+
+```
+
+```{r "MAC SUBSET GSEA TEST", eval = FALSE}
+
+# Get human homologs
+h_mart <- useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
+m_mart <- useEnsembl("ensembl", dataset = "mmusculus_gene_ensembl", host = "https://dec2021.archive.ensembl.org")
+
+hlogs <- getLDS(
+  filters     = "external_gene_name",
+  values      = unique(top_degs$gene),
+  attributes  = c("external_gene_name", "entrezgene_id"),
+  attributesL = c("external_gene_name", "entrezgene_id"),
+  mart        = h_mart,
+  martL       = m_mart
+) %>%
+  rename_with(.cols = ends_with(".1"),       ~ str_replace(.x, ".1$", "_mm")) %>%
+  rename_with(.cols = matches("^Gene.name"), ~ str_replace(.x, "^[^_]+", "gene")) %>%
+  rename_with(.cols = matches("^NCBI"),      ~ str_replace(.x, "^[^_]+", "entrez"))
+
+# TEST DEGS
+x <- top_degs %>%
+  dplyr::select(
+    gene, max_pval, minimump_p_val,
+    avg_log2FC, ident_1, ident_2,
+    mac_type, class
+  ) %>%
+  left_join(hlogs, by = c(gene = "gene_mm")) %>%
+  filter(
+    !is.na(entrez),
+    !grepl("^mt-", gene)
+  )
+
+x <- x %>%
+  # filter(mac_type == "infiltrating") %>%
+  group_by(entrez) %>%
+  summarize(avg_log2FC = max(avg_log2FC)) %>%
+  arrange(desc(avg_log2FC))
+
+res <- set_names(x$avg_log2FC, x$entrez)
+
+res <- res %>%
+  gseDO() %>%
+  setReadable("org.Hs.eg.db", "ENTREZID")
+
+
+# go <- x %>%
+#   filter(
+#     class == "down",
+#     mac_type == "AQP1_interstitial"
+#   ) %>%
+#   filter(!grepl("^mt-", gene)) %>%
+#   pull(gene) %>%
+#   gost(organism = "mmusculus")
+
+# Genes upregulated between macrophage subsets
+# Idents(so_int) <- so_int$mac_type
+# 
+# typ_degs <- so_int %>%
+#   subset(treatment == "CHIKV") %>%
+#   find_conserved_markers(
+#     ident_1 = names(mac_typ_cols),
+#     grp_var = "rep"
+#   )
+# 
+# typ_deg_lst <- typ_degs %>%
+#   split(.$ident_1) %>%
+#   map(pull, gene)
+# 
+# # Filter CHIKV DEGs
+# top_degs <- chikv_degs %>%
+#   rowwise() %>%
+#   filter(gene %in% typ_deg_lst[[mac_type]]) %>%
+#   ungroup()
+
+# gg <- gns %>%
+#   map(~ {
+#     plt_gns <- head(.x, 100)
+#     
+#     so_int %>%
+#       FetchData(c("rep", "sample", "mac_type", plt_gns)) %>%
+#       pivot_longer(any_of(.x)) %>%
+#       mutate(
+#         name = fct_relevel(name, plt_gns),
+#         mac_type = fct_relevel(mac_type, names(mac_typ_cols))
+#       ) %>%
+#       ggplot(aes(mac_type, value, fill = mac_type)) +
+#       geom_boxplot(outlier.size = 0.25) +
+#       scale_fill_manual(values = mac_typ_cols) +
+#       facet_wrap(~ name, scales = "free_y") +
+#       base_theme +
+#       theme(
+#         legend.position = "none",
+#         axis.text.x     = element_text(angle = 45, hjust = 1)
+#       )
+#   })
+
+# typ_degs <- dat %>%
+#   split(.$mac_type) %>%
+#   map(pull, gene)
+
+# dat <- res %>%
+#   filter(
+#     max_pval < 0.05,
+#     `1_avg_log2FC` > 0,
+#     `2_avg_log2FC` > 0,
+#     `3_avg_log2FC` > 0
+#   )
+
+# gns["AQP1_interstitial"] %>%
+# gns["RELMa_interstitial"] %>%
+# gns["CX3CR1_lining"] %>%
+#   map(~ {
+#     so_int %>%
+#       FetchData(c("sample", .x)) %>%
+#       pivot_longer(all_of(.x)) %>%
+#       mutate(name = fct_relevel(name, .x)) %>%
+#       ggplot(aes(sample, value, fill = sample)) +
+#       geom_boxplot(outlier.size = 0.25) +
+#       scale_fill_manual(values = sam_cols) +
+#       facet_wrap(~ name) +
+#       base_theme +
+#       theme(legend.position = "none")
+#   })
+
+```
+
+```{r "GSEA NETWORK PLOTS", eval = FALSE}
+
+edox %>%
+  cnetplot(showCategory = 6)
+  
+edox %>%
+  pairwise_termsim() %>%
+  treeplot()
+
+# BAR GRAPHS
+edox@result %>%
+  head(10) %>%
+  mutate(Description = fct_reorder(Description, p.adjust, .desc = TRUE)) %>%
+  ggplot(aes(Description, -log10(p.adjust))) +
+  geom_col() +
+  djvdj_theme() +
+  coord_flip()
+
+```
+
+```{r "GSEA TEST OLD", eval = FALSE}
+
+library(clusterProfiler)
+library(enrichplot)
+library(msigdbr)
+library(DOSE)
+
+# DEGs
+typs <- c("Macrophages", "Fibroblasts", "T cells")  
+
+type_degs <- typs %>%
+  map_dfr(~ {
+    s <- so %>%
+      subset(cell_type == .x)
+    
+    Idents(s) <- s$treatment
+    
+    s %>%
+      FindConservedMarkers(
+        ident.1      = "CHIKV",
+        grouping.var = "rep"
+      ) %>%
+      as_tibble(rownames = "gene") %>%
+      mutate(cell_type = .x)
+  })
+
+# Format DEG data.frame
+fc_clmns <- grep("_avg_log2FC$", colnames(type_degs), value = TRUE)
+
+deg_dat <- type_degs %>%
+  rowwise() %>%
+  mutate(
+    min_FC = min(abs(c(!!!syms(fc_clmns)))),
+    min_FC = c(!!!syms(fc_clmns))[abs(c(!!!syms(fc_clmns))) == min_FC]
+  ) %>%
+  ungroup() %>%
+  filter(max_pval < 0.05) %>%
+  arrange(desc(min_FC))
+
+# GSEA databases to use
+m_df <- msigdbr(species = "Mus musculus")
+
+m_filt <- m_df %>%
+  filter(
+    gs_cat != "C7",
+    gs_subcat != "CGP",
+    grepl("ARTH", gs_name) |
+    grepl("INFLAM", gs_name)
+  )
+
+# All GSEA
+to_query <- c("H", "C2", "C4", "C5", "C6", "C7", "C8")
+
+go_all <- to_query %>%
+  map_dfr(~ {
+    if(startsWith(.x, "GO")){
+      gene_set <- filter(m_df, gs_subcat == .x)
+    } else {
+      gene_set <- filter(m_df, gs_cat == .x)
+    }
+
+    gs <- .x
+
+    typs %>%
+      map_dfr(~ {
+        d <- deg_dat %>%
+          filter(cell_type == .x)
+
+        gene_lst <- set_names(d$min_FC, d$gene)
+
+        set.seed(42)
+
+        gene_lst %>%
+          GSEA(
+            TERM2GENE = gene_set[c("gs_name", "gene_symbol")],
+            pvalueCutoff = 1
+          ) %>%
+          as_tibble() %>%
+          mutate(
+            cell_type = .x,
+            gene_set = gs
+          )
+      })
+  })
+
+# Targeted GSEA
+go <- typs %>%
+  map_dfr(~ {
+    d <- deg_dat %>%
+      filter(cell_type == .x)
+    
+    gene_lst <- set_names(d$min_FC, d$gene)
+    
+    set.seed(42)
+    
+    gene_lst %>%
+      GSEA(
+        TERM2GENE = m_filt[c("gs_name", "gene_symbol")],
+        pvalueCutoff = 1
+      ) %>%
+      as_tibble() %>%
+      mutate(cell_type = .x)
+  })
+
+# Look for inflammation terms
+go %>%
+  filter(
+    grepl("arth", Description, ignore.case = TRUE) |
+    grepl("infl", Description, ignore.case = TRUE),
+    pvalue < 0.05
+  )
+
+# Terms to highlight
+terms_to_highlight <- c(
+  "HP_ARTHRALGIA",
+  "HP_ARTHRITIS",
+  "GOBP_INFLAMMATORY_RESPONSE",
+  "HALLMARK_INFLAMMATORY_RESPONSE"
+)
+
+# Plot example genes
+ex_gns <- go %>%
+  filter(ID %in% terms_to_highlight) %>%
+  pull(core_enrichment) %>%
+  map(~ unlist(str_split(.x, "/"))) %>%
+  reduce(c) %>%
+  unique() %>%
+  c("Slamf7", "Cd74")
+
+bx_dat <- so %>%
+  FetchData(c("sample", "rep", "treatment", "cell_type", ex_gns)) %>%
+  as_tibble(rownames = ".cell_id") %>%
+  pivot_longer(all_of(ex_gns)) %>%
+  mutate(treatment = fct_relevel(treatment, treats))
+
+bx_dat %>%
+  filter(
+    name %in% ex_gns,
+    cell_type %in% typs
+  ) %>%
+  ggplot(aes(cell_type, value, fill = cell_type, color = cell_type, alpha = treatment)) +
+  geom_boxplot(outlier.size = 0.1) +
+  facet_wrap(~ name, scales = "free_y") +
+  scale_fill_manual(values = type_cols) +
+  scale_color_manual(values = type_cols) +
+  scale_alpha_manual(values = c(0.1, 0.5)) +
+  djvdj_theme() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)
+  )
+
+```

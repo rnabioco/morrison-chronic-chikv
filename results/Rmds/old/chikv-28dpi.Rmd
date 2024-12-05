@@ -1,0 +1,1879 @@
+---
+title:  "CHIKV 28dpi scRNA-seq"
+author: "Ryan Sheridan"
+date:   "`r Sys.Date()`"
+output: 
+  html_document:
+    toc:       true
+    toc_float: true
+    toc_depth: 3
+    theme:     cosmo
+    highlight: kate
+
+params:
+  unenr_dir:    "results/2021-11-05"      # Directory containing unenriched data
+  enr_dir:      "results/2022-02-03"      # Directory containing CHIKV-enriched data
+  template_dir: "src"                     # Directory containing Rmd templates
+  table_dir:    "tables"                  # Directory to write tables
+  overwrite:    false                     # Should tables be overwritten if they already exist?
+  so_dir:       "~/Dropbox/Ryan/Projects" # Directory to write Seurat objects
+  metrics:      "count_metrics.csv"       # Cell Ranger metrics
+  gene_min:     250                       # Min number of detected genes per cell
+  gene_max:     5500                      # Max number of detected genes per cell
+  mito_max:     30                        # Max percentage mito reads per cells
+  rm_doublets:  true                      # Should doublets be removed using DoubletFinder?
+  type_res:     5                         # Clustering resolution for annotating cell types
+  mac_res:      1                         # Clustering resolution for annotating macrophages
+  lec_res:      5                         # Clustering resolution for annotating LECs
+  fib_res:      5                         # Clustering resolution for annotating fibroblasts/stromal cells
+  tm:           "28dpi"                   # Label for time point
+  
+  samples:
+    - "U1"
+    - "U2"
+    - "U3"
+    - "C1"
+    - "C2"
+    - "C3"
+---
+
+<br>
+
+```{r "chunk opts", echo = F}
+
+# Default chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  echo    = FALSE
+)
+
+# Adjust directory paths based on user input
+enr_dir   <- params$enr_dir
+unenr_dir <- params$unenr_dir
+
+if (enr_dir == "") {
+  enr_dir <- unenr_dir
+}
+
+knitr::knit(here::here(unenr_dir, "setup.Rmd"), "")
+
+```
+
+```{r "theme"}
+
+# ggplot2 themes
+txt_pt1  <- 10
+txt_pt2  <- 12
+ttl_pt1  <- 14
+ttl_pt2  <- 16
+ln_pt    <- 0.5
+ln_col   <- "grey85"
+cir_size <- 3.5
+sqr_size <- 4
+
+txt_theme_1 <- theme(
+  strip.text  = element_text(size = ttl_pt1),
+  legend.text = element_text(size = txt_pt1),
+  axis.title  = element_text(size = txt_pt2),
+  axis.text   = element_text(size = txt_pt1)
+)
+
+line_theme <- theme(
+  axis.line.x  = element_line(size = ln_pt, color = ln_col),
+  axis.line.y  = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.x = element_line(size = ln_pt, color = ln_col),
+  axis.ticks.y = element_line(size = ln_pt, color = ln_col)
+)
+
+base_theme <- theme_cowplot() +
+  theme(
+    plot.title       = element_text(face = "plain", size = ttl_pt2),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "plain")
+  ) +
+  txt_theme_1 +
+  line_theme
+
+umap_theme <- base_theme +
+  theme(
+    axis.title   = element_blank(),
+    axis.line.x  = element_blank(),
+    axis.line.y  = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text    = element_blank()
+  )
+
+box_theme <- base_theme +
+  theme(
+    legend.position = "none",
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    panel.border    = element_rect(fill = NA, color = ln_col, size = ln_pt),
+    axis.text.x     = element_text(angle = 45, hjust = 1),
+    axis.title.x    = element_blank()
+  )
+
+fade_0 <- "#FAFAFA"
+fade_1 <- "#F0F0F0"
+fade_2 <- "#D9D9D9"
+
+hist_y_lab <- "number of cells"
+
+# alpha for plots
+al <- 0.7
+
+# Okabe Ito color palettes
+ito_cols <- c(
+  palette_OkabeIto[c(1:3, 5)], "#D7301F",
+  palette_OkabeIto[c(4, 6)],   "#6A51A3",
+  palette_OkabeIto[7],         "#875C04",
+  "#065D43", "#FFD6AD", "#00446E"
+)
+
+ito_cols <- ito_cols[3:length(ito_cols)] %>%
+  darken(0.2) %>%
+  c(ito_cols, ., "#686868", "#000000")
+
+# Set sample colors
+get_cols <- create_col_fun(ito_cols)
+
+sam_cols <- c(
+  "#00446E", "#0072B2", "#56B4E9",
+  "#d7301f", "#D55E00", "#E69F00"
+)
+
+names(sam_cols) <- sam_lvls[params$samples]
+
+# CHIKV treatment groups
+chikv_infctd <- so_df %>%
+  group_by(treatment) %>%
+  summarize(mn = mean(nCount_CHIKV), .groups = "drop") %>%
+  filter(mn == max(mn)) %>%
+  pull(treatment)
+
+# Cell type colors
+type_cols <- unique(so_df$cell_type)
+type_cols <- set_names(ito_cols[seq_along(type_cols)], type_cols)
+
+type_cols["unassigned"] <- "#999999"
+
+subtype_cols <- c(colnames(ref_lec), colnames(ref_fib))
+subtype_cols <- set_names(ito_cols[seq_along(subtype_cols)], subtype_cols)
+subtype_cols["unassigned"] <- "#999999"
+subtype_cols["other"]      <- fade_0
+
+# CHIKV clusters colors
+grp_cols <- set_names(
+  c("#56B4E9", "#0072B2"),
+  chikv_grps
+)
+
+grp_rep_cols <- grp_cols %>% 
+  imap(~ set_names(
+    rep(.x, n_rep),
+    str_c(.y, "-", 1:n_rep)
+  )) %>%
+  flatten_chr()
+
+# CHIKV cell type colors
+n_high <- so_df %>%
+  filter(chikv_grp == chikv_grps[2]) %>%
+  nrow()
+
+chikv_type_cols <- unique(so_df$cell_type)
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% names(subtype_cols)]
+chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% c(lec_cell_types, fib_cell_types)]
+
+avail_cols <- ito_cols[!ito_cols %in% subtype_cols]
+
+chikv_type_cols <- set_names(
+  avail_cols[seq_along(chikv_type_cols)],
+  chikv_type_cols
+)
+
+chikv_type_cols <- c(subtype_cols, chikv_type_cols)
+
+chikv_type_cols[chikv_grps[1]] <- fade_2
+
+# Macrophage cluster colors
+mac_clst_cols <- so_mac[[mac_clst_clmn]] %>%
+  pull(mac_clst_clmn) %>%
+  unique() %>%
+  as.numeric() %>%
+  sort() %>%
+  as.character()
+
+mac_clst_cols <- set_names(
+  ito_cols[seq_along(mac_clst_cols)],
+  mac_clst_cols
+)
+
+```
+
+```{r "qc"}
+
+qc_desc <- str_c("The expected doublet rate was calculated for each sample based on the estimated number of cells loaded assuming a capture rate of 57% (~4.6% per 10k cells loaded). The `DoubletFinder` software package was used to remove potential doublets. This package predicts doublets based on the similarity between each real cell and a group of artificial doublets created by averaging the transcriptional profile of randomly chosen cell pairs.")
+
+qc_chunks <- knit_expand(
+  file      = here(params$template_dir, "qc_template.Rmd"),
+  desc      = "qc_desc",
+  qc_meta   = "so_raw_df",  # meta.data for unfiltered sobj
+  filt_meta = "so_df"       # filtered meta.data to use for UMAPs
+)
+
+```
+
+`r knit_child(text = qc_chunks)`
+
+##
+
+After filtering cells, the raw counts for each gene were divided by the total counts for the cell, multiplied by a scaling factor (10,000), and log-transformed (`NormalizeData`). The top 2000 genes that show the most cell-to-cell variation were then identified and the data were scaled to prevent highly expressed genes from biasing the downstream analysis (`ScaleData`). For clustering and visualizing differences between cells, PCA and UMAP were used for dimensionality reduction (`RunPCA`, `RunUMAP`).
+
+UMAP projections are shown below with cells colored by sample ID.
+
+```{r "sam umaps 1", fig.width = 15.5, fig.height = 13.5}
+
+# Sample UMAPs
+sam_labs <- get_nlab_fun(so_df, "sample")
+tot_lab  <- get_nlab_fun(so_df)
+
+rep_umap <- so_df %>%
+  plot_features(
+    feature   = "sample",
+    size      = 0.01,
+    plot_lvls = names(sam_cols)
+  ) +
+  
+  guides(color = guide_legend(override.aes = list(size = 4.5))) +
+  scale_color_manual(values = sam_cols, labels = sam_labs) +
+  umap_theme +
+  theme(
+    legend.key.height = unit(45, "pt"),
+    legend.title      = element_blank(),
+    legend.text       = element_text(size = txt_pt1 * 1.5)
+  )
+
+sam_umap <- rep_umap +
+  geom_text(
+    aes(Inf, Inf),
+    label         = tot_lab,
+    check_overlap = TRUE,
+    color         = "black",
+    hjust         = 1,
+    vjust         = 1,
+    size          = (txt_pt1 / .pt) * 1.5
+  )
+
+sam_umap
+
+```
+
+UMAP projections are shown for cells divided by replicate, colors correspond to sample ID as shown above. The biological replicates show strong overlap and very similar overall structure, suggesting that batch effects are not having a significant impact on the observed gene expression patterns.
+
+```{r "sam umaps 2", fig.width = 15, fig.height = 6}
+
+sam_labs <- get_nlab_fun(so_df, "sample", sep = " ")
+
+rep_labs <- get_nlab_fun(so_df, "rep", nm = FALSE)
+
+rep_labs <- rep_labs() %>%
+  tibble(rep = names(.), n = .)
+
+rep_umap <- rep_umap +
+  facet_wrap(~ rep) +
+  
+  geom_text(
+    aes(Inf, Inf, label = n),
+    data          = rep_labs,
+    check_overlap = TRUE,
+    color         = "black",
+    hjust         = 1,
+    vjust         = 1,
+    size          = (txt_pt1 / .pt) * 1.5
+  ) +
+  
+  scale_color_manual(values = sam_cols, labels = sam_labs) +
+  guides(color = guide_legend(override.aes = list(size = 4), ncol = 2)) +
+  theme(
+    legend.key.height = unit(20, "pt"),
+    legend.position   = "bottom",
+    strip.text        = element_text(size = ttl_pt2 * 1.2)
+  )
+
+rep_umap
+
+```
+
+---
+
+<br>
+
+<br>
+
+## Cell type annotation
+
+To identify cell clusters, a k-nearest neighbors graph was generated using the first 50 principal components (`FindNeighbors`). This graph was then used to iteratively group cells together using the Louvain method (`FindClusters`).
+
+Broad cell types were first assigned by comparing gene expression patterns for each cluster with data available from Immgen (`clustify`). UMAPs below show cell type annotations for different clustering resolutions, the number of distinct clusters is shown in parenthesis.
+
+```{r "type clusts", fig.width = 16, fig.height = 10.5}
+
+# Columns to plot
+c_clmns <- type_clsts %>%
+  map_chr(pluck, 1) %>%
+  unname()
+
+t_clmns <- type_clsts %>%
+  map_chr(pluck, 2) %>%
+  str_c("_type")
+
+r_clmns <- type_clsts %>%
+  map_chr(pluck, 2) %>%
+  str_c("_r")
+
+# Create UMAPs
+so %>%
+  plot_clust_rslns(
+    c_clmns = c_clmns,
+    t_clmns = t_clmns,
+    r_clmns = r_clmns
+  )
+
+```
+
+<br>
+
+UMAP projections are shown for the selected cell type annotations (clustering resolution `r params$type_res`) with cells colored by type. The fraction of cells belonging to each type is shown on the right.
+
+```{r "cell types", fig.width = 12, fig.height = 7}
+
+so_df %>%
+  mutate(sample = fct_relevel(sample, sam_lvls)) %>%
+  create_umap_bars(
+    fill      = "cell_type",
+    grps      = "sample",
+    filt      = nCount_RNA > -1,
+    plot_clrs = type_cols,
+    list_out  = FALSE,
+    flip_bars = FALSE
+  )
+
+```
+
+---
+
+<br>
+
+<br>
+
+## Cell type marker genes
+
+```{r "MACRO MONO MARKERS", fig.width = 15, fig.height = 14, eval = FALSE}
+
+# x <- so %>%
+#   AddModuleScore(
+#     features = marks,
+#     name = names(marks)
+#   )
+#
+# x@meta.data %>%
+#   pivot_longer(cols = all_of(c("Macrophage1", "Monocyte2"))) %>%
+#   ggplot(aes(cell_type_clst, value, color = name)) +
+#   geom_boxplot() +
+#   base_theme +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#   
+# x@meta.data %>%
+#   ggplot(aes(Macrophage1, Monocyte2, color = cell_type_clst)) +
+#   geom_point() +
+#   facet_wrap(~ cell_type_clst, scales = "free") +
+#   base_theme +
+#   theme(legend.position = "none")
+
+# Plot marker genes
+macro <- c(
+  # "Tfrc",   # Cd71
+  "Ptprc",  # Cd45
+  "Cd14",
+  "Fcgr4",  # Cd16
+  "Fcgr1",  # Cd64
+  "Cd68",
+  "Ccr5"
+)
+
+mon <- c(
+  # "Ptprc",   # Cd45
+  # "Cd14"
+  # "Fcgr4",   # Cd16
+  # "Pecam1",  # Cd31
+  # "Cd44",
+  # "Sell",    # Cd62l
+  "Ccr2",
+  "Itgam",   # Cd11b
+  "Spn",     # Cd43
+  "Csf1r",   # Cd115
+  "Cx3cr1",
+  "Adgre1"   # F4/80
+)
+
+marks <- list(
+  "Macrophage" = macro,
+  "Monocyte"   = mon
+)
+
+clrs <- c(
+  "Macrophage" = "#56B4E9",
+  "Monocyte"   = "#D7301F"
+)
+
+marks_umap <- marks %>%
+  imap(~ {
+    so %>%
+      FetchData(c("UMAP_1", "UMAP_2", .x)) %>%
+      pivot_longer(-c(UMAP_1, UMAP_2)) %>%
+      mutate(name = fct_relevel(name, .x)) %>%
+      plot_features(
+        feature     = "value",
+        size        = 0.00001,
+        # pt_outline  = 0.2,
+        plot_colors = c("white", clrs[.y])
+      ) +
+      facet_wrap(~ name, ncol = 4) +
+      ggtitle(.y) +
+      guides(color = guide_colorbar(barwidth = unit(5, "pt"))) +
+      umap_theme +
+      theme(
+        legend.title     = element_blank(),
+        panel.background = element_rect(fill = NA, color = ln_col)
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    ncol     = 1,
+    align    = "vh",
+    axis     = "trbl"
+  )
+
+marks_umap
+
+```
+
+```{r "cell type marker chunks"}
+
+m_chunks <- knit_expand(
+  file        = here(params$template_dir, "marker_template_extended.Rmd"),
+  so_in       = "so",         # Seurat object
+  clmn        = "cell_type",  # Column containing cell types
+  box_cols    = "type_cols",  # Colors to use for groups in clmn
+  sample_cols = "sam_cols"    # Colors to use for samples
+)
+
+```
+
+`r knit_child(text = m_chunks)`
+
+## CHIKV enrichment
+
+```{r "CHIKV-high data"}
+
+chikv_dat <- so_enr_df %>%
+  filter(qc_class == "pass" & !is.na(UMAP_1)) %>%
+  mutate(
+    across(starts_with("enr_"), replace_na, 0),
+    tot_nCount_CHIKV = nCount_CHIKV + enr_nCount_CHIKV,
+    tot_nCount_RNA   = nCount_RNA + enr_nCount_RNA,
+    tot_pct_CHIKV    = tot_nCount_CHIKV / tot_nCount_RNA * 100,
+    
+    tot_5            = CHIKV_5 + enr_5,
+    tot_sgRNA        = CHIKV_sgRNA + enr_sgRNA,
+    tot_neg          = CHIKV_neg   + enr_neg,
+    
+    chikv_grp        = if_else(tot_nCount_CHIKV > 0, "CHIKV-high", "CHIKV-low"),
+    chikv_type       = if_else(chikv_grp == "CHIKV-high", cell_type, chikv_grp)
+  )
+
+so_chikv <- so %>%
+  AddMetaData(column_to_rownames(chikv_dat, "cell_id"))
+
+```
+
+CHIKV-high cells were classified as cells with at least one CHIKV count for either the bulk or enriched library. The fraction of CHIKV counts is shown below for CHIKV-high cells for bulk and enriched libraries.
+
+```{r "ENRICHMENT HIST", fig.width = 8, fig.height = 4}
+
+# Format data to plot pct_CHIKV
+clmns <- c(
+  "enriched" = "enr_pct_CHIKV",
+  "bulk"     = "pct_CHIKV"
+)
+
+plt_dat <- chikv_dat %>%
+  filter(tot_nCount_CHIKV > 0) %>%
+  dplyr::select(cell_id, all_of(clmns)) %>%
+  
+  pivot_longer(all_of(names(clmns))) %>%
+  
+  mutate(
+    name = fct_relevel(name, names(clmns)),
+    pseudo_val = add_pseudo(value, frac = 1),
+  ) %>%
+  
+  group_by(name) %>%
+  mutate(
+    n   = str_c("n = ", n_distinct(cell_id)),
+    med = median(value)
+  ) %>%
+  ungroup()
+
+# Create boxplots
+plt_dat %>%
+  ggplot(aes(pseudo_val, fill = name)) +
+  geom_histogram(position = "identity", alpha = 0.6, bins = 50) + 
+  
+  geom_text(
+    aes(Inf, Inf, label = n),
+    hjust = 1.1,
+    vjust = 1.4,
+    color = "black",
+    check_overlap = TRUE
+  ) +
+  
+  geom_vline(aes(xintercept = med), linetype = 2, size = 0.5) +
+  
+  scale_fill_manual(values = c("#56B4E9", "#FECC5C")) +
+  scale_x_log10(labels = percent) +
+  labs(x = "% CHIKV counts", y = "number of cells") +
+  djvdj_theme() +
+  theme(
+    legend.position = "top",
+    legend.title    = element_blank()
+  )
+
+```
+
+<br>
+
+CHIKV counts are shown below for CHIKV-high cells for the bulk and enriched libraries. The number of cells with at least one CHIKV count is shown on each plot. Cell types are shown on the right for CHIKV-high cells identified from the bulk or enriched libraries.
+
+```{r "CHIKV-high counts hist"}
+
+feats <- c(
+  "bulk"     = "nCount_CHIKV",
+  "enriched" = "enr_nCount_CHIKV"
+)
+
+# Create histograms
+# only include cells with >0 counts
+hist_dat <- chikv_dat %>%
+  select(cell_id, cell_type, sample, all_of(feats)) %>%
+  pivot_longer(all_of(names(feats))) %>%
+  filter(value > 0) %>%
+  group_by(sample, name) %>%
+  mutate(
+    n = n_distinct(cell_id),
+    n = str_c("n = ", n)
+  ) %>%
+  ungroup()
+  
+chikv_hist <- hist_dat %>%
+  ggplot(aes(value, ..count.. + 1, fill = name)) +
+  geom_histogram(bins = 30) +
+  
+  geom_text(
+    aes(Inf, Inf, label = n),
+    check_overlap = TRUE,
+    hjust         = 1.1,
+    vjust         = 1.5
+  ) +
+  
+  facet_grid(name ~ sample) +
+  scale_fill_manual(values = c("#00375B", "#E69F00")) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(x = "CHIKV counts", y = "number of cells + 1") +
+  box_theme +
+  theme(
+    axis.text.x  = element_text(angle = 0, hjust = 0.5),
+    axis.title.x = element_text()
+  )
+
+```
+
+```{r "CHIKV-high types bars", fig.width = 15, fig.height = 5}
+
+bar_lvls <- hist_dat %>%
+  group_by(cell_type) %>%
+  summarize(
+    n       = n_distinct(cell_id),
+    .groups = "drop"
+  ) %>%
+  mutate(lab = str_c(cell_type, " (n = ", n, ")")) %>%
+  arrange(desc(n))
+
+bar_labs <- function(x) {
+  labs <- set_names(bar_lvls$lab, bar_lvls$cell_type)
+  labs[x]
+}
+
+chikv_bar <- hist_dat %>%
+  mutate(cell_type = fct_relevel(cell_type, bar_lvls$cell_type)) %>%
+  ggplot(aes(name, fill = cell_type)) +
+  geom_bar() +
+  scale_fill_manual(values = type_cols, labels = bar_labs) +
+  labs(y = "number of cells") +
+  base_theme +
+  theme(
+    legend.title = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x  = element_text(size = txt_pt2)
+  )
+
+# Create final figure
+plot_grid(
+  chikv_hist, NULL, chikv_bar,
+  rel_widths = c(1, 0.2, 0.7),
+  align      = "h",
+  axis       = "tb",
+  nrow       = 1
+)
+
+```
+
+<br>
+
+The percentage of bulk + enriched counts aligning to the CHIKV genome is shown below.
+
+```{r "percent CHIKV UMAP", fig.width = 12, fig.height = 10}
+
+# Add pseudo count
+# smallest non-zero value divided by 2
+pseudo <- chikv_dat %>%
+  filter(tot_pct_CHIKV > 0) %>%
+  pull(tot_pct_CHIKV) %>%
+  min() %>%
+  (function(x) x / 2)
+
+# Create UMAP of CHIKV counts
+tot_lab <- get_nlab_fun(chikv_dat)
+
+gd <- bar_gd(
+  direction = "horizontal",
+  label.theme = element_text(angle = 45, hjust = 1, size = txt_pt1)
+)
+
+chikv_dat %>%
+  mutate("% CHIKV counts" = tot_pct_CHIKV + pseudo) %>%
+  arrange(`% CHIKV counts`) %>%
+  
+  ggplot(aes(UMAP_1, UMAP_2, fill = `% CHIKV counts`)) +
+  
+  geom_point_trace(
+    size  = 2,
+    color = NA,
+    trace_position = tot_nCount_CHIKV > 0,
+    background_params = list(color = "black", stroke = 0.5, size = 0.7)
+  ) +
+  
+  scale_fill_gradientn(colours = c(fade_0, "#D7301F"), trans = "log10") +
+  
+  geom_text(
+    aes(Inf, Inf),
+    label         = tot_lab,
+    check_overlap = TRUE,
+    color         = "black",
+    hjust         = 1,
+    vjust         = 1,
+    size          = txt_pt1 / .pt
+  ) +
+  
+  guides(fill = gd) +
+  umap_theme
+
+```
+
+<br>
+
+CHIKV sgRNA, 5', and minus strand (neg) counts (bulk + enriched) are shown below.
+
+```{r "CHIKV counts UMAP", fig.width = 17, fig.height = 6}
+
+feats <- c(
+  "tot_sgRNA" = "#E69F00",
+  "tot_5"     = "#009E73",
+  "tot_neg"   = "#0072B2"
+)
+
+u_dat <- chikv_dat %>%
+  select(cell_id, starts_with("UMAP_"), sample, all_of(names(feats)))
+
+umaps <- feats %>%
+  imap(~ {
+    ttl <- str_remove(.y, "^tot_")
+    ttl <- str_replace(ttl, "(?<=^[0-9]$)", "'")
+    ttl <- str_c(ttl, " counts + 1")
+    
+    u_dat %>%
+      mutate(clmn := !!sym(.y) + 1) %>%
+      arrange(clmn) %>%
+      
+      ggplot(aes(UMAP_1, UMAP_2, fill = clmn)) +
+      
+      geom_point_trace(
+        size  = 1.5,
+        color = NA,
+        trace_position = clmn > 1,
+        background_params = list(color = "black", stroke = 0.3, size = 0.5)
+      ) +
+      
+      scale_fill_gradientn(colors = c("white", .x), trans = "log10") +
+      guides(fill = guide_colorbar(barheight = unit(0.2, "cm"), title.position = "top", title = ttl)) +
+      theme_void() +
+      theme(
+        legend.position      = "top",
+        legend.justification = c(0.1, 1),
+        legend.title         = element_text(size = txt_pt2),
+        legend.text          = element_text(size = txt_pt1),
+        panel.border         = element_rect(fill = NA, color = ln_col, size = ln_pt)
+      )
+  })
+
+plot_grid(
+  plotlist = umaps,
+  align    = "vh",
+  axis     = "trbl",
+  nrow     = 1
+)
+
+```
+
+## CHIKV-high cell types
+
+CHIKV-high cells were classified as cells with at least one total CHIKV count (bulk + enriched). UMAP projection is shown below with CHIKV-high cells colored by cell type.
+
+```{r "CHIKV-high types UMAP", fig.width = 12, fig.height = 10}
+
+chikv_labs <- chikv_dat %>%
+  get_nlab_fun("chikv_type")
+
+chikv_lvls <- names(chikv_labs())
+chikv_lvls <- chikv_lvls[chikv_lvls != "CHIKV-low"]
+chikv_lvls <- rev(c(chikv_lvls, "CHIKV-low"))
+
+umap_cols <- type_cols
+
+umap_cols[[chikv_grps[1]]] <- fade_0
+
+chikv_dat %>%
+  mutate(chikv_type = fct_relevel(chikv_type, chikv_lvls)) %>%
+  
+  ggplot(aes(UMAP_1, UMAP_2, fill = chikv_type)) +
+  geom_point_trace(
+    size  = 2,
+    color = NA,
+    trace_position = tot_nCount_CHIKV > 0,
+    background_params = list(color = "black", stroke = 0.5, size = 0.7)
+  ) +
+  
+  umap_theme +
+  scale_fill_manual(values = umap_cols, labels = chikv_labs) +
+  guides(fill = guide_legend(reverse = TRUE, override.aes = list(size = 4.5))) +
+  theme(
+    legend.title      = element_blank(),
+    legend.key.height = unit(45, "pt"),
+    legend.text       = element_text(size = txt_pt1 * 1.5)
+  )
+
+```
+
+<br>
+
+The fraction of cells classified as CHIKV-high is shown below for each cell type.
+
+```{r "fraction CHIKV-high", fig.width = 24, fig.height = 6}
+
+# Only include CHIKV-infected samples
+# only show cell types with >2 cells
+bar_dat <- chikv_dat %>%
+  filter(treatment == chikv_infctd) %>%
+  group_by(cell_type, sample) %>%
+  mutate(
+    n        = n_distinct(cell_id),
+    n        = str_c(cell_type, "\n(n = ", n, ")"),
+    n_high   = length(cell_type[tot_nCount_CHIKV > 0]),
+    pct_high = n_high / n_distinct(cell_id) * 100,
+    nm       = str_c(sample, "_", cell_type)
+  ) %>%
+  filter(n() > 2) %>%
+  ungroup() %>%
+  distinct(sample, cell_type, nm, n, pct_high) %>%
+  mutate(nm = fct_reorder(nm, pct_high, max, .desc = TRUE))
+
+bar_labs <- function(x) {
+  labs <- set_names(bar_dat$n, bar_dat$nm)
+  labs[x]
+}
+
+bar_dat %>%
+  ggplot(aes(nm, pct_high, fill = cell_type)) +
+  geom_col() +
+  scale_y_continuous(labels = (function(x) str_c(x, "%"))) +
+  scale_fill_manual(values = type_cols) +
+  scale_x_discrete(labels = bar_labs) +
+  labs(y = "percent CHIKV-high cells") +
+  facet_wrap(~ sample, scales = "free_x") +
+  box_theme
+
+```
+
+<br>
+
+CHIKV counts (bulk + enriched) are shown below for each cell type for CHIKV-high cells.
+
+```{r "CHIKV counts boxes", fig.width = 18, fig.height = 6}
+
+# Feature to plot
+feat <- "tot_nCount_CHIKV"
+ttl  <- "CHIKV counts"
+
+# Data for boxplots
+bx_dat <- chikv_dat %>%
+  filter(!!sym(feat) > 0) %>%
+  mutate(nm = str_c(sample, "_", cell_type))
+
+# Boxplot labels and levels
+bx_lvls <- bx_dat %>%
+  group_by(sample, cell_type, nm) %>%
+  summarize(
+    n       = n_distinct(cell_id),
+    stats   = list(boxplot.stats(log10(!!sym(feat)))),
+    med     = map_dbl(stats, ~ .x$stats[3]),
+    qrt3    = map_dbl(stats, ~ .x$stats[4]),
+    qrt4    = map_dbl(stats, ~ .x$stats[5]),
+    max     = max(!!sym(feat)),
+    .groups = "drop"
+  ) %>%
+  mutate(n = str_c(cell_type, "\n(n = ", n, ")")) %>%
+  arrange(desc(med), desc(qrt3), desc(qrt4), desc(max), cell_type)
+
+bx_labs <- function(x) {
+  labs <- set_names(bx_lvls$n, bx_lvls$nm)
+  labs[x]
+}
+
+# Plot percent CHIKV counts
+bx_dat %>%
+  mutate(nm = fct_relevel(nm, bx_lvls$nm)) %>%
+  
+  ggplot(aes(nm, !!sym(feat), color = cell_type)) +
+  geom_boxplot(size = 1) +
+
+  scale_color_manual(values = type_cols) +
+  scale_x_discrete(labels = bx_labs) +
+  scale_y_continuous(trans = "log10") +
+  labs(y = ttl) +
+  facet_wrap(~ sample, scales = "free_x") +
+  box_theme
+
+```
+
+---
+
+<br>
+
+<br>
+
+## CHIKV markers
+
+```{r "chikv markers params"}
+
+fc_range <- c(0.1, Inf)
+
+abs_fc <- fc_range[is.finite(fc_range)]
+abs_fc <- abs(2 ^ abs_fc)
+abs_fc <- round(abs_fc, 2)
+
+p_max  <- 0.1
+
+```
+
+### `r chikv_grps[2]` cell types {.tabset .tabset-pills}
+
+Differentially expressed genes were identified for each cell type by comparing replicates from the `r chikv_grps[1]` and `r chikv_grps[2]` groups. The top upregulated `r chikv_grps[2]` genes for the "`r chikv_infctd`" group are shown below. GO terms for marker genes are shown at the bottom. This analysis was only performed for cell types that were identified in all samples.
+
+```{r "chikv-high type marks", fig.width = 10, fig.height = 6, results = "asis"}
+
+# Input data
+so_chikv_clust <- so_chikv %>%
+  subset(treatment == "CHIKV") %>%
+  mutate_meta(mutate, grp_rep = str_c(chikv_grp, "-", rep))
+
+Idents(so_chikv_clust) <- so_chikv_clust %>%
+  FetchData("chikv_grp")
+
+# Cell types to test
+clmn <- "cell_type"
+
+chikv_sams <- unique(so_chikv_clust$sample)
+
+chikv_types <- so_chikv_clust@meta.data %>%
+  group_by(!!sym(clmn), sample, chikv_grp) %>%
+  filter(n() >= 3) %>%
+  
+  group_by(!!sym(clmn), sample) %>%
+  filter(all(names(grp_cols) %in% chikv_grp)) %>%
+  
+  group_by(!!sym(clmn), chikv_grp) %>%
+  filter(all(chikv_sams %in% sample)) %>%
+  
+  pull(clmn) %>%
+  unique()
+
+# Create figure panels
+for (tp in chikv_types) {
+  cat("\n#### ", tp, "\n", sep = "")
+  
+  prfx <- str_replace_all(tp, " ", "_")
+  prfx <- str_remove_all(prfx, "[\\)\\(]")
+  prfx <- str_c(str_to_lower(chikv_grps[2]), prfx, sep = "_")
+
+  marker_fig <- so_chikv_clust %>%
+    subset(subset = !!sym(clmn) == tp) %>%
+    
+    create_marker_fig(
+      marker_fn   = find_conserved_markers,
+      ident_1     = chikv_grps[2],
+      grp_var     = "rep",
+      p_max       = p_max,
+      fc_range    = fc_range,
+      box_x       = "grp_rep",
+      box_cols    = grp_rep_cols,
+      n_genes     = 30,
+      box_ncol    = 10,
+      box_nrow    = 3,
+      rel_h       = c(1, 0.7),
+      file_dir    = table_dir,
+      file_prefix = prfx,
+      overwrite   = params$overwrite
+    )
+  
+  cat(
+    N_MARKERS, "marker genes with a p-value <", p_max,
+    "and an absolute fold change >", abs_fc, "were identified.",
+    N_GO_TERMS, "GO terms were identified."
+  )
+  
+  print(marker_fig)
+  cat("\n\n---\n\n<br>\n\n<br>\n\n")
+}
+
+```
+
+## Macrophage clusters
+
+Macrophages were re-clustered, UMAPs show sample and cluster identity. The fraction of cells belonging to each cluster is shown on the right.
+
+```{r "macrophage clusters", fig.width = 15, fig.height = 7}
+
+# UMAP theme
+mac_u_theme <- theme(
+  aspect.ratio         = 0.7,
+  legend.position      = "bottom",
+  legend.justification = "center",
+  legend.title         = element_blank()
+)
+
+# Sample UMAP
+mac_sam_labs <- get_nlab_fun(so_mac, "sample", sep = " ")
+
+mac_sam_u <- so_mac %>%
+  plot_features(
+    feature   = "sample",
+    plot_lvls = names(sam_cols),
+    size      = 0.75
+  ) +
+  scale_color_manual(values = sam_cols, labels = mac_sam_labs) +
+  guides(color = guide_legend(nrow = length(sam_cols), override.aes = list(size = 3))) +
+  umap_theme +
+  mac_u_theme
+
+# Cluster UMAP
+mac_clst_labs <- get_nlab_fun(so_mac, mac_clst_clmn, sep = " ")
+
+mac_clst_u <- so_mac %>%
+  plot_features(
+    feature   = mac_clst_clmn,
+    plot_lvls = names(mac_clst_cols),
+    size      = 0.75
+  ) +
+  scale_color_manual(values = mac_clst_cols, labels = mac_clst_labs) +
+  guides(color = guide_legend(nrow = length(sam_cols), override.aes = list(size = 3))) +
+  umap_theme +
+  mac_u_theme
+
+# Cluster bargraph
+mac_clst_bx <- so_mac@meta.data %>%
+  mutate(
+    sample = fct_relevel(sample, names(sam_cols)),
+    !!sym(mac_clst_clmn) := fct_infreq(!!sym(mac_clst_clmn))
+  ) %>%
+  ggplot(aes(sample, fill = !!sym(mac_clst_clmn))) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = mac_clst_cols) +
+  scale_y_continuous(expand = expansion(0)) +
+  base_theme +
+  theme(
+    aspect.ratio    = 1.6,
+    legend.position = "none",
+    axis.title      = element_blank(),
+    axis.text.x     = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    axis.text.y     = element_blank(),
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    axis.ticks.x    = element_blank(),
+    axis.ticks.y    = element_blank()
+  )
+
+plot_grid(
+  mac_sam_u, mac_clst_u, mac_clst_bx,
+  nrow = 1,
+  rel_widths = c(1, 1, 0.4)
+)
+
+```
+
+### Cluster markers {.tabset .tabset-pills}
+
+Marker genes were identified for each macrophage cluster shown above.
+
+```{r "macrophage cluster markers", fig.width = 15, fig.height = 15, results = "asis"}
+
+so_mac %>%
+  create_treatment_marker_fig(
+    treat            = NULL,
+    grp_clmn         = mac_clst_clmn,
+    fc_range         = c(log2(1.5), Inf),
+    file_dir         = table_dir,
+    file_prefix      = "mac-clusters",
+    box_cols         = mac_clst_cols,
+    show_x_labels    = TRUE,
+    box_aspect_ratio = 0.5,
+    footer = "\n\n---\n\n<br>\n\n<br>\n\n"
+  )
+
+```
+
+### Culemann et al. {.tabset .tabset-pills}
+
+Macrophage subsets inferred from marker genes identified by Culemann et al. are shown below.
+
+```{r "culemann subsets", fig.width = 15, fig.height = 7}
+
+# Assign subsets
+subsets <- c(
+  "10" = "AQP1_interstitial",
+  "5"  = "AQP1_interstitial",
+  "11" = "RELMa_interstitial",
+  "2"  = "RELMa_interstitial",
+  "1"  = "RELMa_interstitial",
+  "8"  = "RELMa_interstitial",
+  "9"  = "CX3CR1_lining"
+)
+
+dat <- so_mac %>%
+  mutate_meta(
+    mutate,
+    subset = subsets[as.character(!!sym(mac_clst_clmn))],
+    subset = replace_na(subset, "unassigned")
+  )
+
+# Subset colors
+sub_cols <- unique(unname(subsets))
+
+sub_cols <- set_names(
+  ito_cols[seq_along(sub_cols)],
+  sub_cols
+)
+
+sub_cols <- prepend(sub_cols, c("unassigned" = fade_1))
+
+# Cluster UMAP
+sub_labs <- get_nlab_fun(dat, "subset", sep = " ")
+
+sub_u <- dat %>%
+  plot_features(
+    feature   = "subset",
+    plot_lvls = names(sub_cols),
+    size      = 0.75
+  ) +
+  scale_color_manual(values = sub_cols, labels = sub_labs) +
+  guides(color = guide_legend(ncol = 1, override.aes = list(size = 3))) +
+  umap_theme +
+  mac_u_theme
+
+# Cluster bargraph
+sub_bar <- dat@meta.data %>%
+  mutate(
+    sample = fct_relevel(sample, names(sam_cols)),
+    subset = fct_infreq(subset)
+  ) %>%
+  ggplot(aes(sample, fill = subset)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = sub_cols) +
+  scale_y_continuous(expand = expansion(0)) +
+  base_theme +
+  theme(
+    aspect.ratio    = 1.3,
+    legend.position = "none",
+    axis.title      = element_blank(),
+    axis.text.x     = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    axis.text.y     = element_blank(),
+    axis.line.x     = element_blank(),
+    axis.line.y     = element_blank(),
+    axis.ticks.x    = element_blank(),
+    axis.ticks.y    = element_blank()
+  )
+
+plot_grid(
+  sub_u, sub_bar,
+  nrow = 1,
+  rel_widths = c(1, 0.4)
+)
+
+```
+
+<br>
+
+Expression of marker genes identified by Culemann et al. is shown below. The first two UMAPs show cluster ID and average expression for the subset, respectively.
+
+```{r "culemann gene lists", fig.width = 9, fig.height = 10, results = "asis"}
+
+# Gene lists from Culemann et al.
+culemann_genes <- here("ref/2019_Culemann/table_s1.txt")
+
+culemann_genes <- read_delim(
+  file   = culemann_genes,
+  delim  = " ",
+  locale = locale(decimal_mark = ",")
+)
+
+feat_lvls <- c(
+  "3" = "CX3CR1_lining",
+  "0" = "AQP1_interstitial",
+  "2" = "RELMa_interstitial",
+  "1" = "MHCII_interstitial"
+  # "4" = "STMN1_proliferating",
+  # "5" = "ACP5_osteoclast"
+)
+
+culemann_genes <- culemann_genes %>%
+  mutate(cluster = feat_lvls[as.character(cluster)])
+
+feat_lvls <- unname(feat_lvls)
+
+# Format gene lists
+# Cx3cr1 is tagged with TdTomato
+feats <- culemann_genes %>%
+  select(gene, cluster) %>%
+  split(.$cluster) %>%
+  map(pull, gene)
+
+feats <- feats[feat_lvls]
+
+feats <- feats %>%
+  map(~ {
+    .x[.x == "TdTomato"] <- "Cx3cr1"
+    .x[.x %in% rownames(so_mac)]
+  })
+
+plt_feats <- feats %>%
+  imap(~ c(.y, .x))
+
+# Add module scores
+mod_clmns <- set_names(
+  str_c(feat_lvls, seq_along(feat_lvls)),
+  feat_lvls
+)
+
+dat <- so_mac %>%
+  AddModuleScore(
+    feats,
+    name = names(feats),
+    seed = 42
+  ) %>%
+  mutate_meta(rename, !!!syms(mod_clmns))
+
+# Plot data
+dat <- dat %>%
+  FetchData(c(
+    "sample", "treatment", mac_clst_clmn,
+    "UMAP_1", "UMAP_2",
+    "tot_pct_CHIKV", "tot_nCount_CHIKV",
+    "type", "r",
+    unique(unlist(plt_feats))
+  ))
+
+
+
+# OLD FIGURE PANELS
+# Create figure panels
+# feats %>%
+#   iwalk(~ {
+#     cat("\n#### ", .y, "\n\n")
+#     
+#     plt <- .x %>%
+#       map(~ {
+#         create_gene_fig(
+#           dat,
+#           grps     = mac_clst_clmn,
+#           feat     = .x,
+#           box_clrs = mac_clst_cols
+#         )
+#       })
+#     
+#     plt <- plot_grid(
+#       plotlist = append(list(clst_u), plt),
+#       ncol     = 3,
+#       nrow     = 2
+#     )
+#     
+#     print(plt)
+#     cat("\n\n---\n\n<br>\n\n<br>\n\n")
+#   })
+
+# CLUSTIFY LISTS
+# n_gns <- 9
+# 
+# mods <- feats[!grepl("MHCII", names(feats))] %>%
+#   imap_dfr(~ tibble(stage = .y, Gene = .x)) %>%
+#   group_by(stage) %>%
+#   filter(n() >= n_gns) %>%
+#   ungroup() %>%
+#   split(.$stage) %>%
+#   imap(~ select(.x, !!sym(.y) := Gene)) %>%
+#   map_dfc(head, n_gns)
+# 
+# res <- so_mac %>%
+#   clustify_lists(
+#     marker = mods,
+#     cluster_col = mac_clst_clmn
+#   )
+# 
+# res %>%
+#   plot_features(feature = "type.clustify") +
+#   theme(aspect.ratio = 0.7)
+
+```
+
+```{r "culemann marker figure", fig.width = 13, fig.height = 20, results = "asis"}
+
+# Cluster UMAP
+clst_u <- so_mac %>%
+  plot_features(
+    feature   = mac_clst_clmn,
+    plot_lvls = names(mac_clst_cols),
+    size      = 0.3
+  ) +
+  scale_color_manual(values = mac_clst_cols, labels = mac_clst_labs) +
+  guides(color = guide_legend(ncol = 3, override.aes = list(size = 3))) +
+  umap_theme +
+  theme(
+    aspect.ratio     = 0.7,
+    legend.position  = "bottom",
+    legend.title     = element_blank(),
+    legend.text      = element_text(size = 8),
+    legend.key.width = unit(8, "pt")
+  )
+
+# Create figure panels
+plt_feats %>%
+  iwalk(~ {
+    cat("\n#### ", .y, " {.tabset}\n\n")
+    
+    gns    <- .x
+    pg_gns <- 20
+    n_gns  <- length(gns)
+    n_pgs  <- ceiling(n_gns / pg_gns)
+    
+    1:n_pgs %>%
+      walk(~ {
+        y <- .x * pg_gns
+        x <- y - pg_gns + 1
+        y <- ifelse(y > n_gns, n_gns, y)
+        
+        ttl <- str_c(x, "-", y)
+        
+        cat("\n##### ", ttl, "\n\n")
+        
+        plt <- gns[x:y] %>%
+          map(~ {
+            create_gene_fig(
+              dat,
+              grps     = mac_clst_clmn,
+              feat     = .x,
+              box_clrs = mac_clst_cols
+            )
+          })
+    
+        plt <- plot_grid(
+          plotlist = append(list(clst_u), plt),
+          ncol     = 4,
+          nrow     = 5
+        )
+        
+        print(plt)
+        cat("\n\n---\n\n<br>\n\n<br>\n\n")
+      })
+  })
+
+```
+
+### Sanin et al. {.tabset .tabset-pills}
+
+Activation stages inferred from marker genes identified by Sanin et al. are shown below.
+
+```{r "sanin stages", fig.width = 12, fig.height = 11}
+
+# Stage assignments
+stages <- list(
+  "Phagocytic (P1)" = list(
+    initial      = c(4, 13, 3),
+    early        = c(4, 3),
+    intermediate = c(0, 4),
+    late         = c(0, 2, 1),
+    final        = c(11, 8, 2, 5)
+  ),
+  "Oxidative stress (P2)" = list(
+    initial      = c(4, 13, 3),
+    early        = c(4, 3),
+    intermediate = c(0, 4),
+    late         = c(4, 13),
+    final        = 9
+  ),
+  "Inflammatory (P3)" = list(
+    initial      = c(4, 13, 3),
+    early        = c(4, 3),
+    intermediate = c(0, 4),
+    final        = c(13, 4)
+  ),
+  "Remodeling (P4)" = list(
+    initial      = c(4, 13, 3),
+    early        = c(4, 3),
+    intermediate = c(0, 4),
+    final        = 16
+  )
+)
+
+# Stage colors
+stg_clrs <- stages %>%
+  flatten() %>%
+  names() %>%
+  unique()
+
+stg_clrs <- set_names(
+  ito_cols[seq_along(stg_clrs)],
+  stg_clrs
+)
+
+stg_clrs <- stg_clrs %>%
+  prepend(c("other" = fade_1))
+
+# Create figure panels
+stages %>%
+  imap(~ {
+    path <- .y
+    
+    d <- .x %>%
+      imap_dfr(~ {
+        dat %>%
+          mutate(
+            path = path,
+            key = .y,
+            stage = ifelse(!!sym(mac_clst_clmn) %in% .x, .y, "other")
+          )
+      })
+    
+    d %>%
+      mutate(
+        stage = fct_relevel(stage, names(stg_clrs)),
+        key = fct_relevel(key, names(stg_clrs))
+      ) %>%
+      ggplot(aes(UMAP_1, UMAP_2, color = stage)) +
+      geom_point(size = 0.0001) +
+      facet_wrap(~ key, nrow = 1) +
+      scale_color_manual(values = stg_clrs) +
+      ggtitle(path) +
+      umap_theme +
+      mac_u_theme +
+      theme(
+        legend.position = "none",
+        plot.title.position = "plot"
+      )
+  }) %>%
+  plot_grid(
+    plotlist = .,
+    ncol = 1
+  )
+
+```
+
+<br>
+
+Expression of top marker genes for each activation stage is shown below. The first two UMAPs show cluster ID and average expression for the activation stage, respectively.
+
+```{r "sanin gene lists"}
+
+# Gene lists from Sanin et al.
+sanin_genes <- here("ref/2022_Sanin/sciimmunol.abl7482_data_file_s2.xlsx")
+sanin_genes <- xlsx::read.xlsx(sanin_genes, sheetIndex = 1)
+
+feat_lvls <- unique(sanin_genes$Target.stage)
+feat_lvls <- feat_lvls[feat_lvls != "Cycling"]
+
+# Format gene lists
+# some gene names have a trailing number that must be removed
+feats <- sanin_genes %>%
+  select(Gene, Target.stage) %>%
+  split(.$Target.stage) %>%
+  map(pull, Gene)
+
+feats <- feats[feat_lvls]
+
+feats <- feats %>%
+  imap(~ {
+    gns <- set_names(.x)
+    mis <- gns[!gns %in% rownames(so_mac)]
+    mis <- map_chr(mis, str_remove, "[0-9]$")
+    
+    gns[names(mis)] <- unname(mis)
+    
+    gns <- gns[gns %in% rownames(so_mac)]
+    
+    gns <- unname(gns)
+    
+    if (.y != "Final.P4") {
+      gns <- gns[gns %in% VariableFeatures(so_mac)]
+    }
+    
+    gns
+  })
+
+plt_feats <- feats %>%
+  imap(~ c(.y, .x))
+
+# Add module scores
+mod_clmns <- set_names(
+  str_c(feat_lvls, seq_along(feat_lvls)),
+  feat_lvls
+)
+
+dat <- so_mac %>%
+  AddModuleScore(
+    feats,
+    name = names(feats),
+    seed = 42
+  ) %>%
+  mutate_meta(rename, !!!syms(mod_clmns))
+
+# Plot data
+dat <- dat %>%
+  FetchData(c(
+    "sample", "treatment", mac_clst_clmn,
+    "UMAP_1", "UMAP_2",
+    "tot_pct_CHIKV", "tot_nCount_CHIKV",
+    "type", "r",
+    unique(unlist(plt_feats))
+  ))
+
+```
+
+```{r "sanin marker figure", fig.width = 13, fig.height = 20, results = "asis"}
+
+# Create figure panels
+plt_feats %>%
+  iwalk(~ {
+    cat("\n#### ", .y, " {.tabset}\n\n")
+    
+    gns    <- .x
+    pg_gns <- 20
+    n_gns  <- length(gns)
+    n_pgs  <- ceiling(n_gns / pg_gns)
+    
+    1:n_pgs %>%
+      walk(~ {
+        y <- .x * pg_gns
+        x <- y - pg_gns + 1
+        y <- ifelse(y > n_gns, n_gns, y)
+        
+        ttl <- str_c(x, "-", y)
+        
+        cat("\n##### ", ttl, "\n\n")
+        
+        plt <- gns[x:y] %>%
+          map(~ {
+            create_gene_fig(
+              dat,
+              grps     = mac_clst_clmn,
+              feat     = .x,
+              box_clrs = mac_clst_cols
+            )
+          })
+    
+        plt <- plot_grid(
+          plotlist = append(list(clst_u), plt),
+          ncol     = 4,
+          nrow     = 5
+        )
+        
+        print(plt)
+        cat("\n\n---\n\n<br>\n\n<br>\n\n")
+      })
+  })
+
+```
+
+
+
+```{r "browser files", eval = FALSE}
+
+library(scbp)
+
+# Create Cell Browser directories for gene expression data
+brow_dir <- here(enr_dir, "cellbrowser")
+  
+dir.create(
+  path      = brow_dir,
+  recursive = TRUE
+)
+
+# meta.data fields to include in browser
+feats <- c(
+  "Sample"      = "sample",
+  "Treatment"   = "treatment",
+  "Cell cycle"  = "Phase",
+  "clusters"    = "cell_type",
+
+  "Total mouse counts" = "nCount_RNA",
+  "Genes expressed"    = "nFeature_RNA",
+  "% mito counts"      = "pct_mito",
+  "Total CHIKV counts" = "nCount_CHIKV",
+  "% CHIKV counts"     = "pct_CHIKV",
+  "CHIKV 5' counts"    = "CHIKV_AF15561_5",
+  "CHIKV sgRNA counts" = "CHIKV_AF15561_sgRNA",
+  "CHIKV neg counts"   = "CHIKV_AF15561_neg",
+  "CHIKV class"        = "chikv_grp"
+)
+
+# Create Cell Browser files for gene expression data
+so %>%
+  make_cellbrowser(
+    outdir      = brow_dir,
+    column_list = feats,
+    embeddings  = "umap",
+    project     = "28dpi",
+    config      = list(radius = 3)
+  )
+
+```
+
+```{bash "build browser", eval = FALSE}
+
+cb='cellbrowser'
+brow="$cb/browser"
+conf="$cb/28dpi/cellbrowser.conf"
+
+mkdir -p "$brow"
+
+cbBuild \
+  -i "$conf" \
+  -o "$brow" \
+  -p 8888
+  
+```
+
+
+```{r "MACROPHAGE MARKERS NEW", eval = FALSE}
+
+find_marks <- function(so_in, marks) {
+  marks[!marks %in% rownames(so_in)]
+}
+
+# https://www.bio-rad-antibodies.com/macrophage-m1-m2-tam-tcr-cd169-cd-markers-antibodies.html
+m1 <- c(
+  "Cd86",
+  "Cd80",
+  "Cd68",
+  "Il1r1",
+  "Tlr2",
+  "Tlr4",
+  "Nos2",  # iNOS
+  "Socs3"
+)
+
+m2a <- c(
+  "Cd163",
+  # "H2-Aa",
+  "Mrc1",     # CD206
+  "Cd200r1",  # CD200R
+  "Tgm2",
+  "Il1r2",
+  "Retnlb",
+  "Arg1"
+)
+
+m2c <- c("Cd163", "Tlr1", "Tlr8")
+
+tam <- c(
+  "Ccl2",
+  "Cd3e",
+  "Pecam1",  # CD31
+  "Cd163",
+  "Il10",
+  "Nos2",
+  "Pcna",
+  "Vegfa"
+)
+
+marks <- list(m1 = m1, m2a = m2a, m2c = m2c, tam = tam)
+
+all_marks <- c(names(marks), unique(unlist(marks)))
+
+# Module score
+mods <- so_mac %>%
+  AddModuleScore(
+    features = marks,
+    name = names(marks)
+  ) %>%
+  mutate_meta(
+    rename_with,
+    .cols = all_of(str_c(names(marks), 1:length(marks))),
+    .fn = ~ str_remove(.x, "[0-9]$")
+  )
+
+feats <- c(
+  "sample", "cell_type",
+  "UMAP_1", "UMAP_2",
+  mac_clst_clmn,
+  all_marks
+)
+
+mods <- mods %>%
+  FetchData(feats)
+
+all_marks %>%
+  map(~ {
+    mods %>%
+      arrange(!!sym(.x)) %>%
+      ggplot(aes(UMAP_1, UMAP_2, fill = !!sym(.x))) +
+      geom_point_trace(
+        size = 0.5
+      ) +
+      scale_fill_gradientn(colours = c("white", "red")) +
+      theme_void() +
+      theme(aspect.ratio = 0.7)
+  }) %>%
+  plot_grid(plotlist = .)
+
+```
+
+```{r "MOCK MACROPHAGES", eval = FALSE}
+
+# Subset macrophages
+so_mac_mock <- so_mac %>%
+  subset(treatment == "mock")
+
+# Find variable features with M3Drop
+# counts cannot be log-normalized
+counts <- so_mac_mock %>%
+  GetAssayData(
+    slot  = "counts",
+    assay = "RNA"
+  ) %>%
+  M3DropConvertData(
+    is.log    = FALSE,
+    is.counts = TRUE
+  )
+
+var_genes <- counts %>%
+  M3DropFeatureSelection(
+    mt_threshold  = 0.001,
+    suppress.plot = TRUE
+  )
+
+VariableFeatures(so_mac_mock) <- rownames(var_genes)
+
+# Cluster cells
+so_mac_mock <- so_mac_mock %>%
+  ScaleData(
+    assay = "RNA",
+    vars.to.regress = "pct_mito"
+  ) %>%
+  cluster_RNA(
+    assay      = "RNA",
+    resolution = c(0.5, 1, 2),
+    dims       = 1:50
+  )
+
+```
+
+```{r "MACROPHAGE MARKERS", eval = FALSE, fig.width = 15, fig.height = 10, eval = FALSE}
+
+# Cd169 (Siglec1)
+m1      <- c("Cd86", "Cd80", "Cd68", "Il1r1", "Tlr2", "Tlr4", "Socs3")
+m2      <- c("Cd163", "Mrc1", "Hcrtr2", "Tgm2")
+syn_mac <- c("Cx3cl1", "Csf1r", "Mki67")                   # Culemann et al. 2019 Nature
+tfap    <- c("Tppp3", "Pdgfra", "Ly6a", "Ptprc", "Itga7")  # Harvey et al. 2019 Nat Cell Biol
+ten     <- c("Fmod", "Tnmd", "Thbs4")                      # Harvey et al. 2019 Nat Cell Biol
+
+marks <- list(
+  m1      = m1,
+  m2      = m2,
+  syn_mac = syn_mac,
+  tfap    = tfap,
+  ten     = ten
+)
+
+x <- so_mac %>%
+  AddModuleScore(
+    features = marks,
+    name = names(marks)
+  ) %>%
+  mutate_meta(
+    rename_with,
+    .cols = all_of(str_c(names(marks), 1:length(marks))),
+    .fn = ~ str_remove(.x, "[0-9]$")
+  )
+
+feats <- c(
+  "sample", "cell_type",
+  "UMAP_1", "UMAP_2",
+  mac_clst_clmn,
+  m1, m2, syn_mac,
+  tfap, ten,
+  names(marks)
+)
+
+dat <- x %>%
+  FetchData(feats)
+
+syn_mac %>%
+  map(~ {
+    dat %>%
+      arrange(!!sym(.x)) %>%
+      ggplot(aes(UMAP_1, UMAP_2, fill = !!sym(.x))) +
+      geom_point_trace(
+        size = 0.5
+      ) +
+      scale_fill_gradientn(colours = c("white", "red")) +
+      theme_void() +
+      theme(aspect.ratio = 0.7)
+  }) %>%
+  plot_grid(plotlist = .)
+
+```
+
+```{r "DIFF EXPR TEST", eval = FALSE}
+
+# Mtr polymorphisms and RA drug response
+# https://www.frontiersin.org/articles/10.3389/fphar.2018.01390/full
+
+genes <- macs %>%
+  FindConservedMarkers(
+    ident.1         = "CHIKV-high",
+    grouping.var    = "NEW",
+    only.pos        = TRUE,
+    logfc.threshold = 0
+  )
+
+top_genes <- genes %>%
+  filter(max_pval < 0.1)
+
+dat <- macs %>%
+  FetchData(c("chikv_grp", "rep", rownames(top_genes)))
+
+rownames(top_genes) %>%
+  map(~ {
+    dat %>%
+      ggplot(aes(chikv_grp, !!sym(.x), fill = as.character(rep))) +
+      geom_boxplot()
+  }) %>%
+  plot_grid(plotlist = .)
+
+```
+
+```{r "MXRA8 EXPRESSION", eval = FALSE}
+
+# gns <- c("Mxra8", "Marco")
+gns <- c("Mxra8")
+
+clmns <- c(
+  "treatment", "rep", "sample", 
+  "cell_type", "chikv_grp", "tot_nCount_CHIKV",
+  gns
+)
+
+dat <- so %>%
+  mutate_meta(mutate, chikv_grp = ifelse(tot_nCount_CHIKV > 0, "CHIKV-high", "CHIKV-low")) %>%
+  FetchData(clmns) %>%
+  as_tibble(rownames = ".cell_id") %>%
+  group_by(sample, cell_type) %>%
+  mutate(
+    pct = length(Mxra8[Mxra8 > 0]) / n(),
+    pct = as.character(round(pct, 2))
+  ) %>%
+  ungroup() %>%
+  mutate(
+    sample = fct_relevel(sample, sam_lvls),
+    chikv_grp = fct_relevel(chikv_grp, c("CHIKV-low", "CHIKV-high"))
+  )
+
+bxs <- gns %>%
+  map(~ {
+    dat %>%
+      ggplot(aes(sample, !!sym(.x), fill = sample, color = sample, alpha = chikv_grp)) +
+      geom_boxplot(
+        key_glyph = draw_key_point,
+        position = position_dodge2(preserve = "single"),
+        outlier.alpha = 1,
+        outlier.size = 0.2
+      ) +
+      geom_text(
+        aes(sample, Inf, label = pct),
+        check_overlap = TRUE,
+        color = "black",
+        alpha = 1,
+        vjust = 1.3,
+        show.legend = FALSE,
+        size = 7 / .pt
+      ) +
+      facet_wrap(~ cell_type, scales = "free_x") +
+      guides(
+        fill = "none",
+        color = "none",
+        alpha = guide_legend(override.aes = list(shape = 15, size = 5))
+      ) +
+      scale_y_continuous(expand = expansion(c(0.05, 0.15))) +
+      scale_fill_manual(values = sam_cols) +
+      scale_color_manual(values = sam_cols) +
+      scale_alpha_manual(values = c(0.2, 0.7)) +
+      djvdj_theme() +
+      theme(
+        legend.position = "top",
+        legend.title    = element_blank(),
+        axis.text.x     = element_text(angle = 45, hjust = 1),
+        axis.title.x   = element_blank()
+      )
+  })
+
+bxs %>%
+  plot_grid(
+    plotlist = .,
+    align = "vh",
+    axis  = "trbl",
+    nrow  = 1
+  )
+
+```
+
+

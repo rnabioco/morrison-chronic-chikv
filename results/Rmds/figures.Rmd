@@ -797,19 +797,27 @@ type_chikv_sig %>%
 
 ## 1F
 
-Bargraphs showing top GSEA disease ontology terms for genes upregulated when
+Bargraphs showing select GSEA disease ontology terms for genes upregulated when
 comparing all mock vs CHIKV-infected macrophages.
-GSEA terms were filtered to remove broad terms that include >250 genes.
+This shows the top terms sorted by adjusted p value, with
+"bone inflammation disease" added to the plot.
+GSEA terms were filtered to remove terms that include >400 genes.
 
 ```{r "mac GSEA bargraph", fig.width = 7, fig.height = 4, out.width = "50%"}
 # Bargraph showing top terms
 # Filter to remove broad gene sets
+select_terms <- c(
+  "rheumatic disease",
+  "rheumatoid arthritis",
+  "bone inflammation disease"
+)
+
 n_terms <- 6
 
 top_gsea <- mac_chikv_gsea@result %>%
-  filter(setSize <= 250) %>%
+  filter(setSize <= 400) %>%
   arrange(p.adjust) %>%
-  head(n_terms) %>%
+  filter(row_number() <= n_terms | Description %in% select_terms) %>%
   mutate(Description = fct_inorder(Description)) %>%
   arrange(desc(Description)) %>%  # reverse axis order so top shown first
   mutate(Description = fct_inorder(Description))
@@ -837,19 +845,7 @@ Enrichment is shown for select top GSEA terms
 
 ```{r "mac GSEA examples", fig.width = 10, fig.height = 5}
 # Plot example terms
-terms <- c(
-  levels(top_gsea$Description),
-  "rheumatic disease",
-  "rheumatoid arthritis",
-  "bone inflammation disease"
-) %>%
-  unique()
-
-gsea_terms <- mac_chikv_gsea@result %>%
-  dplyr::filter(Description %in% terms)
-
-gsea_terms <- set_names(gsea_terms$ID, gsea_terms$Description)
-gsea_terms <- gsea_terms[terms]
+gsea_terms <- set_names(top_gsea$ID, top_gsea$Description)
 
 gsea_terms %>%
   imap(~ {
@@ -916,6 +912,58 @@ dat %>%
     axis.text.x  = element_blank(),
     axis.text.y  = element_text(size = txt_pt2),
     axis.ticks.x = element_blank()
+  )
+```
+
+<br>
+
+The fraction of cells identified as CHIKV+ is shown below for each macrophage
+subset from the CHIKV-infected samples.
+Unassigned cells are not shown.
+
+```{r "CHIKV+ mac bargraphs", fig.width = 5, fig.height = 3, out.width = "50%"}
+# Format data for bargraphs
+dat <- so_mac@meta.data %>%
+  filter(treatment == "CHIKV" & mac_type != "unassigned") %>%
+  
+  group_by(mac_type) %>%
+  summarize(
+    n = n(),
+    n_high = sum(chikv_grp == "CHIKV-high"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frac_high = n_high / n,
+    pct_high  = frac_high * 100,
+    n_lab     = str_c(label_comma()(n_high), "/", label_comma()(n)),
+    mac_type  = fct_relevel(mac_type, names(mac_x_labs))
+  )
+
+# Create bargraphs
+dat %>%
+  filter(mac_type != "unassigned") %>%
+  
+  ggplot(aes(mac_type, frac_high, fill = mac_type, color = mac_type)) +
+  geom_col(position = position_dodge2(), alpha = 0.5) +
+  geom_text(
+    aes(label = n_lab),
+    position = position_dodge2(width = 0.9),
+    alpha = 1, color = "black",
+    hjust = 0.5, vjust = -0.3,
+    size = 8 / .pt
+  ) +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  scale_color_manual(values = mac_typ_cols_2) +
+  scale_x_discrete(labels = mac_x_labs) +
+  scale_y_continuous(labels = label_percent(), expand = expansion(c(0.05, 0.1))) +
+  # scale_alpha_manual(values = rep(0.5, n_distinct(dat$rep))) +
+  guides(alpha = "none") +
+  labs(y = "% CHIKV+") +
+  base_theme +
+  theme(
+    aspect.ratio = 1,
+    legend.position = "none",
+    axis.title.x = element_blank()
   )
 ```
 
@@ -1119,7 +1167,7 @@ the maximum adjusted p-value for the replicates.
 Black diamonds mark the top 20 upregulated genes for each subset,
 grey diamonds mark other subsets where each gene is upregulated.
 
-```{r "mac chikv type heatmaps", fig.width = 5.3, fig.height = 6}
+```{r "mac chikv type heatmaps", fig.width = 5.3, fig.height = 6, out.width = "75%"}
 # Set genes to plot
 # * exclude unassigned macrophages
 # * filter expr_dat after selecting genes to ensure diamonds are included for
@@ -1131,10 +1179,44 @@ so_mac %>%
   create_deg_heatmap(
     type_clmn  = "mac_type",
     type_lvls  = names(mac_typ_cols),
+    n_top      = 20,
     sam_clmn   = "sample",
     sam_lvls   = sam_lvls,
     p_data     = degs,
+    
     p_clmn     = "max_p_adj",
+    rev_sort   = FALSE,
+    
+    strip_labs = mac_strip_labs
+  )
+```
+
+<br>
+
+This is an alternate version showing the top 30 genes sorted by the maximum
+fold change in expression for the replicates.
+This modified version includes Il1b and Tnf.
+
+```{r "mac chikv type heatmaps 2", fig.width = 5.5, fig.height = 9, out.width = "75%"}
+# Set genes to plot
+# * exclude unassigned macrophages
+# * filter expr_dat after selecting genes to ensure diamonds are included for
+#   all cell types that significantly upregulate the gene
+degs <- mac_type_chikv_sig %>%
+  filter(direction == "up")
+
+so_mac %>%
+  create_deg_heatmap(
+    type_clmn  = "mac_type",
+    type_lvls  = names(mac_typ_cols),
+    n_top      = 30,
+    sam_clmn   = "sample",
+    sam_lvls   = sam_lvls,
+    p_data     = degs,
+    
+    p_clmn     = "max_abs_fc",
+    rev_sort   = TRUE,
+    
     strip_labs = mac_strip_labs
   )
 ```
