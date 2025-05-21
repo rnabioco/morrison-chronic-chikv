@@ -259,7 +259,7 @@ sobjs <- sobjs %>%
 
 ```{r "doublets", eval = create_so && params$rm_doublets}
 # Rough cell type classifications to use for approximating homotypic doublets
-# clustering resolution 3
+# * clustering resolution 3
 sobjs <- sobjs %>%
   map(~ {
     .x %>%
@@ -285,7 +285,8 @@ sobjs <- sobjs %>%
   })
 
 # Estimate doublets
-# add doublet classifications to meta.data
+# * add doublet classifications to meta.data
+# * remove low quality cells before running, low features or high pct mito
 sobjs <- sobjs %>%
   map(~ {
     .x %>%
@@ -307,27 +308,6 @@ sobjs <- sobjs %>%
         qc_pass = qc_class == "pass"
       )
   })
-
-
-
-# # CHECK DOUBLET FILTERING
-# so_raw_old %>%
-#   split(.$orig.ident) %>%
-#   map_dbl(~ {
-#     dbl_rate <- 0.0000046
-#     cap_rate <- 0.57
-# 
-#     dbl_rate <- (nrow(.x) / cap_rate) * dbl_rate
-# 
-#     .x %>%
-#       filter(
-#         pct_mito < params$mito_max,
-#         nFeature_RNA > params$gene_min,
-#         nFeature_RNA < params$gene_max
-#       ) %>%
-#       nrow() %>%
-#       (function(x) x - (x * dbl_rate))
-#   })
 ```
 
 ```{r "save raw objects", eval = create_so}
@@ -407,8 +387,8 @@ enr_counts <- so_enr_df %>%
   dplyr::select(cell_id, orig.ident, starts_with("tot"))
 
 # Add enriched counts to objects
-# classify CHIKV-low/high cells
-# enriched counts will be present in filtered object and so_enr_df
+# * classify CHIKV-low/high cells
+# * enriched counts will be present in filtered object and so_enr_df
 sobjs <- sobjs %>%
   imap(~ {
     counts <- enr_counts %>%
