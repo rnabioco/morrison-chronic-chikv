@@ -81,7 +81,7 @@ params:
     - "mRNA-vaccine-(FLAG-3x)"
     - "mRNA-vaccine-(eGFP)"
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 <br>
@@ -833,76 +833,84 @@ type_chikv_sig %>%
 
 ## 1F
 
-Bargraphs showing select GSEA disease ontology terms for genes upregulated when
-comparing all mock vs CHIKV-infected macrophages.
-This shows the top terms sorted by adjusted p value, with
-"bone inflammation disease" added to the plot.
-GSEA terms were filtered to remove terms that include >400 genes.
+Enrichment is shown for select top GSEA disease ontology terms for
+genes upregulated when comparing all mock vs CHIKV-infected macrophages.
+GSEA terms were filtered to remove terms that include >400 genes and
+sorted by adjusted p value.
 
 ```{r "mac GSEA bargraph", fig.width = 7, fig.height = 4, out.width = "50%"}
 # Bargraph showing top terms
 # Filter to remove broad gene sets
-select_terms <- c(
-  "rheumatic disease",
-  "rheumatoid arthritis",
-  "bone inflammation disease"
-)
-
 n_terms <- 6
 
 top_gsea <- mac_chikv_gsea@result %>%
   filter(setSize <= 400) %>%
   arrange(p.adjust) %>%
-  filter(row_number() <= n_terms | Description %in% select_terms) %>%
+  filter(row_number() <= n_terms) %>%
   mutate(Description = fct_inorder(Description)) %>%
   arrange(desc(Description)) %>%  # reverse axis order so top shown first
   mutate(Description = fct_inorder(Description))
   
-top_gsea %>%
-  ggplot(aes(Description, -log10(p.adjust))) +
-  geom_col(fill = "#6A51A3", alpha = 0.7) +
-  labs(y = "-log10(p-value)") +
-  scale_y_continuous(expand = expansion(c(0.02, 0.05))) +
-  coord_flip() +
-  djvdj_theme() +
-  theme(
-    aspect.ratio = 0.5,
-    panel.border = element_blank(),
-    axis.line.x  = element_line(size = 0.5, color = "grey85"),
-    axis.ticks.y = element_blank(),
-    axis.title.y = element_blank(),
-    axis.text.y  = element_text(size = 20, hjust = 1, color = "black"),
-    axis.text.x  = element_text(size = 16, hjust = 1, color = "black"),
-    axis.title.x = element_text(size = 20)
-  )
+
+# top_gsea %>%
+#   ggplot(aes(Description, -log10(p.adjust))) +
+#   geom_col(fill = "#6A51A3", alpha = 0.7) +
+#   labs(y = "-log10(p-value)") +
+#   scale_y_continuous(expand = expansion(c(0.02, 0.05))) +
+#   coord_flip() +
+#   djvdj_theme() +
+#   theme(
+#     aspect.ratio = 0.5,
+#     panel.border = element_blank(),
+#     axis.line.x  = element_line(size = 0.5, color = "grey85"),
+#     axis.ticks.y = element_blank(),
+#     axis.title.y = element_blank(),
+#     axis.text.y  = element_text(size = 20, hjust = 1, color = "black"),
+#     axis.text.x  = element_text(size = 16, hjust = 1, color = "black"),
+#     axis.title.x = element_text(size = 20)
+#   )
 ```
 
-Enrichment is shown for select top GSEA terms
-
-```{r "mac GSEA examples", fig.width = 10, fig.height = 5}
+```{r "mac GSEA examples", fig.width = 5.75, fig.height = 6.5, out.width = "50%"}
 # Plot example terms
 gsea_terms <- set_names(top_gsea$ID, top_gsea$Description)
 
 gsea_terms %>%
+  rev() %>%
   imap(~ {
+    p <- top_gsea %>%
+      filter(ID == .x) %>%
+      pull(p.adjust) %>%
+      .format_pvalue() %>%
+      str_c("italic(p) == ", .)
+    
     mac_chikv_gsea %>%
       gseaplot(
         .x,
         by = "runningScore",
         color.line = "#0072B2"
       ) +
+      geom_text(
+        aes(x, y, label = p),
+        data  = ~ summarize(.x, x = max(x), y = max(runningScore)),
+        parse = TRUE,
+        vjust = 1,
+        hjust = 1,
+        size  = 8 / .pt
+      ) +
       labs(subtitle = .y, x = "Gene rank") +
       theme_cowplot() +
       djvdj_theme() +
       theme(
-        aspect.ratio = 0.65,
+        aspect.ratio  = 0.65,
+        plot.margin   = margin(),
         plot.subtitle = element_text(face = "plain", size = 15),
-        axis.title = element_text(size = 10)
+        axis.title    = element_text(size = 10)
       )
   }) %>%
   plot_grid(
     plotlist = .,
-    nrow = 2
+    nrow = 3
   )
 ```
 
