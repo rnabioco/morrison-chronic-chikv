@@ -44,42 +44,6 @@ params:
     - "C2"
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
-  xen_dir:          "~/Dropbox/Ryan/Projects/morrison-chronic-chikv/results/xenium"  # Xenium objects
-  xen_res_dir:      "results/xenium/20241212__000859__Morrison_Run1"                 # Directory with Xenium data
-  xen_regex:        ["output-XETG00230__00536[0-9]{2}__TR-2-24[A-Z]_"]               # Regex to pull sample dirs for Xenium slides
-  xen_sample_regex: ["TR-2-24[A-Z]+"]
-  xen_samples: 
-    value:
-      TR-2-24A: "A"
-      TR-2-24B: "B"
-      TR-2-24C: "C"
-      TR-2-24D: "D"
-      TR-2-24E: "E"
-      TR-2-24F: "F"
-  xen_chikv_targets:
-    value:
-      CHIKV_5:     "CHIKV-5-(0-7566)"
-      CHIKV_sgRNA: "CHIKV-sgRNA-(7566-12036)"
-      CHIKV_neg:   "CHIKV-negative-(0-12036)"
-  xen_custom_targets:
-    - "Ag-tag-A-(ERCC2)"
-    - "Ag-tag-B-(ERCC3)"
-    - "Ag-tag-C-(ERCC4)"
-    - "T2-Sensitive-Ag-tag-(ERCC9)"
-    - "T2-Resistant-Ag-tag-(ERCC12)"
-    - "DNA-only-T2-Control-Ag-tag-(ERCC16)"
-    - "GeoMx-Barcode01-ERCC00142"
-    - "GeoMx-Barcode02-ERCC00144"
-    - "CHIKV-5-(0-7566)"
-    - "CHIKV-sgRNA-(7566-12036)"
-    - "CHIKV-negative-(0-12036)"
-    - "LCMV-(Armstrong)-Segment"
-    - "Listeria-monocytogenes-10403S-gyrase-B-CP002002-1"
-    - "Vaccinia-(Western-Reserve)-J6R"
-    - "mRNA-vaccine-(3-UTR)"
-    - "mRNA-vaccine-(ovalbumin)"
-    - "mRNA-vaccine-(FLAG-3x)"
-    - "mRNA-vaccine-(eGFP)"
 editor_options: 
   chunk_output_type: console
 ---
@@ -1723,33 +1687,3 @@ geo_objs %>%
       )
   })
 ```
-
-```{r "xenium metadata for geo", eval = FALSE}
-clmns <- c(
-  "cell_id",
-  "slide",
-  "fov",
-  "mouse",
-  "tm",
-  "nCount_Xenium",
-  "nFeature_Xenium",
-  "UMAP_1", "UMAP_2",
-  "cell_type",
-  "Ag_class",
-  "x_cell", "y_cell",
-  "lec_dist",
-  "Ag_3wk_counts",
-  "Ag_6wk_counts"
-)
-
-metadat <- xen %>%
-  mutate(
-    tm = str_c(tm_key[mouse], " day"),
-    tm = replace_na(tm, "dual")
-  ) %>%
-  select(all_of(clmns))
-
-metadat %>%
-  write_tsv(here(params$geo_dir, "xenium_metadata.tsv.gz"))
-```
-
