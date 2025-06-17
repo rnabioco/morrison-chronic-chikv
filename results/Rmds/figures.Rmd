@@ -81,7 +81,7 @@ params:
     - "mRNA-vaccine-(FLAG-3x)"
     - "mRNA-vaccine-(eGFP)"
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 <br>
@@ -1674,6 +1674,82 @@ so_t %>%
 
 # Session info
 
-```{r}
+```{r "session info"}
 sessionInfo()
 ```
+
+```{r "matrices for geo", eval = FALSE}
+# Metadata columns to include
+clmns <- c(
+  "cell_id",
+  "treatment",
+  "rep",
+  "sample",
+  "cell_type",
+  "tot_nCount_CHIKV",
+  "tot_sgRNA",
+  "tot_5",
+  "tot_neg",
+  "chikv_grp"
+)
+
+clmns_1 <- c(clmns, "UMAP_1", "UMAP_2")
+clmns_2 <- c(clmns, "hUMAP_1", "hUMAP_2")
+
+# Write files for GEO
+geo_objs <- list(
+  obj   = c("so", "so_mac", "so_t"),
+  clmns = list(clmns_1, c(clmns_2, "mac_type"), c(clmns_2, "t_type"))
+)
+
+geo_objs %>%
+  pwalk(~ {
+    prfx      <- .x
+    geo_files <- str_c(prfx, c("count_matrix.h5", "metadata.tsv.gz"))
+    geo_files <- here(params$geo_dir, geo_files)
+    
+    # Write matrices and meta.data
+    if (all(file.exists(geo_files))) return(NULL)
+    
+    obj <- qread(here(params$so_dir, str_c(prfx, ".qs")))
+    
+    obj %>%
+      export_matrices(
+        assays      = c("RNA", "CHIKV"),
+        feat_type   = c("Gene Expression", "Gene Expression"),
+        columns     = .y,
+        out_dir     = params$geo_dir,
+        file_prefix = str_c(prfx, "_")
+      )
+  })
+```
+
+```{r "xenium metadata for geo", eval = FALSE}
+clmns <- c(
+  "cell_id",
+  "slide",
+  "fov",
+  "mouse",
+  "tm",
+  "nCount_Xenium",
+  "nFeature_Xenium",
+  "UMAP_1", "UMAP_2",
+  "cell_type",
+  "Ag_class",
+  "x_cell", "y_cell",
+  "lec_dist",
+  "Ag_3wk_counts",
+  "Ag_6wk_counts"
+)
+
+metadat <- xen %>%
+  mutate(
+    tm = str_c(tm_key[mouse], " day"),
+    tm = replace_na(tm, "dual")
+  ) %>%
+  select(all_of(clmns))
+
+metadat %>%
+  write_tsv(here(params$geo_dir, "xenium_metadata.tsv.gz"))
+```
+

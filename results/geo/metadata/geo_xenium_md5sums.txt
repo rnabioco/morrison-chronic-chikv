@@ -1,0 +1,13 @@
+85682424ad7a7ae2a6955e6da71cbba8  TR-2-24A_transcripts.parquet
+3f4d368a8eae945bcc5030673a8ff8df  TR-2-24A_morphology.ome.tif
+b6c5b2239b30f0135dfdc702807779f5  TR-2-24C_transcripts.parquet
+c7d9adff2e1e7931479189c520a68671  TR-2-24C_morphology.ome.tif
+4d6f1423379fb8d9a73b873e5d320aa1  TR-2-24F_transcripts.parquet
+4f313f9afae1f1463c9f89fcbcbbccc3  TR-2-24F_morphology.ome.tif
+12138a70625dc1321e370121f6d8b7db  TR-2-24B_transcripts.parquet
+32ff91be3f593f71c0dd5486bf8cc5e8  TR-2-24B_morphology.ome.tif
+a798282af383429e83f4114899c51da7  TR-2-24D_transcripts.parquet
+ed2ba8e44bab6e08b01779a9f309b05f  TR-2-24D_morphology.ome.tif
+5f52a0c77695d2d5c957ab16146d3440  TR-2-24E_transcripts.parquet
+e4dd7866d09614feb71e1b9ac2c69f7a  TR-2-24E_morphology.ome.tif
+6d2e3c0bddefcc53a66246c097250499  xenium_metadata.tsv.gz
