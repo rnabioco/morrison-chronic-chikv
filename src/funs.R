@@ -307,7 +307,7 @@ create_sobj <- function(mat_dir, proj_name = "SeuratProject", hash_ids = NULL, a
     adt_mat <- adt_mat[count_sums >= adt_count_min, ]
     
     if (n_feats != nrow(adt_mat)) {
-      warning("Some ADT features were removed due to low counts (<", adt_count_min, ").")
+      cli_warn("Some ADT features were removed due to low counts (<{adt_count_min})")
     }
     
     res[["ADT"]] <- Seurat::CreateAssayObject(adt_mat)
@@ -3434,7 +3434,7 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
                                ex_type = "unassigned", inc_type = NULL,
                                include_genes = NULL,
                                strip_labs = waiver(),
-                               strip_lab_fn = label_parsed) {
+                               strip_lab_fn = label_parsed, bold = NULL) {
   
   top_clrs <- c(
     "top" = "black",
@@ -3584,6 +3584,16 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
       legend.key.width = unit(7, "pt"),
       legend.title     = element_blank()
     )
+  
+  # Set bold gene labels
+  if (!is.null(bold)) {
+    face <- rep("plain", length(gns))
+    
+    face[rev(gns) %in% bold] <- "bold"
+    
+    res <- res +
+      theme(axis.text.y = element_text(face = face))
+  }
   
   res
 }
