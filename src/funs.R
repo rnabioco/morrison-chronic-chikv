@@ -3434,7 +3434,8 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
                                ex_type = "unassigned", inc_type = NULL,
                                include_genes = NULL,
                                strip_labs = waiver(),
-                               strip_lab_fn = label_parsed, bold = NULL) {
+                               strip_lab_fn = label_parsed, bold = NULL,
+                               scale_groups = NULL) {
   
   top_clrs <- c(
     "top" = "black",
@@ -3506,7 +3507,7 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
   # * exclude unassigned macrophages
   feats <- c(sam_clmn, type_clmn, gns)
   
-  scale_grps <- "name"
+  scale_grps <- c("name", scale_groups)
   
   dat <- so_in %>%
     FetchData(feats) %>%

@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 <br>
@@ -649,9 +649,9 @@ t_sig_2 <- t_sig_2 %>%
   filter(direction == "up")
 ```
 
-# Page 1
+# Figure 1
 
-## 1C-D
+## 1C-D, 2A
 
 UMAP projections show sample groups (left), cell type annotations (middle),
 and CHIKV+ cells (right).
@@ -767,7 +767,7 @@ so@meta.data %>%
 The number of differentially expressed genes identified for mock vs CHIKV is
 shown below for each cell type.
 
-```{r "DEGs bargraph", fig.width = 5, fig.height = 3, out.width = "%40"}
+```{r "DEGs bargraph", fig.width = 5, fig.height = 3, out.width = "40%"}
 type_chikv_sig %>%
   mutate(
     cell_type = fct_infreq(cell_type),
@@ -884,9 +884,9 @@ gsea_terms %>%
 
 <br>
 
-# Page 2
+# Figure 2
 
-## 2B
+## 2A
 
 The fraction of CHIKV+ cells identified for each cell type is shown below.
 
@@ -924,64 +924,6 @@ dat %>%
 ```
 
 <br>
-
-The fraction of cells identified as CHIKV+ is shown below for each macrophage
-subset from the CHIKV-infected samples.
-Unassigned cells are not shown.
-
-```{r "CHIKV+ mac bargraphs", fig.width = 5, fig.height = 3, out.width = "50%"}
-# Format data for bargraphs
-dat <- so_mac@meta.data %>%
-  filter(treatment == "CHIKV" & mac_type != "unassigned") %>%
-  
-  group_by(mac_type) %>%
-  summarize(
-    n = n(),
-    n_high = sum(chikv_grp == "CHIKV-high"),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    frac_high = n_high / n,
-    pct_high  = frac_high * 100,
-    n_lab     = str_c(label_comma()(n_high), "/", label_comma()(n)),
-    mac_type  = fct_relevel(mac_type, names(mac_x_labs))
-  )
-
-# Create bargraphs
-dat %>%
-  filter(mac_type != "unassigned") %>%
-  
-  ggplot(aes(mac_type, frac_high, fill = mac_type, color = mac_type)) +
-  geom_col(position = position_dodge2(), alpha = 0.5) +
-  geom_text(
-    aes(label = n_lab),
-    position = position_dodge2(width = 0.9),
-    alpha = 1, color = "black",
-    hjust = 0.5, vjust = -0.3,
-    size = 8 / .pt
-  ) +
-  scale_fill_manual(values = mac_typ_cols_2) +
-  scale_color_manual(values = mac_typ_cols_2) +
-  scale_x_discrete(labels = mac_x_labs) +
-  scale_y_continuous(labels = label_percent(), expand = expansion(c(0.05, 0.1))) +
-  # scale_alpha_manual(values = rep(0.5, n_distinct(dat$rep))) +
-  guides(alpha = "none") +
-  labs(y = "% CHIKV+") +
-  base_theme +
-  theme(
-    aspect.ratio = 1,
-    legend.position = "none",
-    axis.title.x = element_blank()
-  )
-```
-
----
-
-<br>
-
-<br>
-
-# Figure 2
 
 ## 2C-D
 
@@ -1166,6 +1108,63 @@ plot_grid(
 
 <br>
 
+## 2F
+
+The fraction of cells identified as CHIKV+ is shown below for each macrophage
+subset from the CHIKV-infected samples.
+Unassigned cells are not shown.
+
+```{r "CHIKV+ mac bargraphs", fig.width = 5, fig.height = 3, out.width = "50%"}
+# Format data for bargraphs
+dat <- so_mac@meta.data %>%
+  filter(treatment == "CHIKV" & mac_type != "unassigned") %>%
+  
+  group_by(mac_type) %>%
+  summarize(
+    n = n(),
+    n_high = sum(chikv_grp == "CHIKV-high"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frac_high = n_high / n,
+    pct_high  = frac_high * 100,
+    n_lab     = str_c(label_comma()(n_high), "/", label_comma()(n)),
+    mac_type  = fct_relevel(mac_type, names(mac_x_labs))
+  )
+
+# Create bargraphs
+dat %>%
+  filter(mac_type != "unassigned") %>%
+  
+  ggplot(aes(mac_type, frac_high, fill = mac_type, color = mac_type)) +
+  geom_col(position = position_dodge2(), alpha = 0.95) +
+  geom_text(
+    aes(label = n_lab),
+    position = position_dodge2(width = 0.9),
+    alpha = 1, color = "black",
+    hjust = 0.5, vjust = -0.3,
+    size = 8 / .pt
+  ) +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  scale_color_manual(values = mac_typ_cols_2) +
+  scale_x_discrete(labels = mac_x_labs) +
+  scale_y_continuous(labels = label_percent(), expand = expansion(c(0.05, 0.1))) +
+  # scale_alpha_manual(values = rep(0.5, n_distinct(dat$rep))) +
+  guides(alpha = "none") +
+  labs(y = "% CHIKV+") +
+  base_theme +
+  theme(
+    aspect.ratio = 1,
+    legend.position = "none",
+    axis.title.x = element_blank()
+  )
+```
+
+---
+
+<br>
+
+<br>
 
 # Figure 3
 
@@ -1249,73 +1248,9 @@ so_mac %>%
 
 <br>
 
-# Page 5
+# Figure 4
 
-## 5A
-
-Expression of select genes upregulated in CHIKV- vs mock-infected samples is
-shown below for macrophage subsets.
-
-```{r "mac chikv type boxplots", fig.width = 19, fig.height = 7.5}
-# Genes to plot
-gns <- c("Tnf", "Il1b", "Nlrp3", "H2-Eb1")
-
-u_clrs    <- grp_cols
-u_clrs[1] <- lighten("#009E73", 0.2)
-
-names(u_clrs) <- treats
-
-# Create plots for example genes
-# * exclude unassigned macrophages
-gn_boxes <- so_mac %>%
-  subset(mac_type != "unassigned") %>%
-  create_celltype_plots(
-    gns     = gns,
-    p_data  = mac_type_chikv_sig,
-    p_clmn  = "max_p_adj",
-    bx_labs = mac_x_labs
-  )
-
-ex_plts <- plot_grid(
-  plotlist = gn_boxes,
-  align = "v",
-  axis  = "rl",
-  nrow  = 2
-)
-
-ex_plts
-```
-
-<br>
-
-## 5D
-
-Heatmaps show expression of the top 10 marker genes for each macrophage subset.
-Genes are sorted by minimum fold change for the replicates.
-
-```{r "mac type heatmaps", fig.width = 5.2, fig.height = 6.3}
-so_mac %>%
-  create_marker_heatmap(
-    type_clmn  = "mac_type",
-    type_lvls  = names(mac_typ_cols),
-    sam_clmn   = "sample",
-    sam_lvls   = sam_lvls,
-    p_data     = mac_type_sig,
-    p_clmn     = "min_abs_fc",
-    strip_labs = mac_strip_labs,
-    n_gns      = 10
-  )
-```
-
----
-
-<br>
-
-<br>
-
-# Page 6
-
-## 6A
+## 4A
 
 Ifng expression is shown below for each cell type for CHIKV-infected samples.
 CD4 Teffs are plotted as a separate group.
@@ -1374,7 +1309,7 @@ ifng_dat %>%
 
 <br>
 
-## 6B
+## 4B
 
 UMAP projections show T cell subsets.
 
@@ -1452,7 +1387,96 @@ plot_grid(
 
 <br>
 
-## 6C
+## 4C
+
+Ifng expression is shown below for each T cell subset.
+
+```{r "t ifng", fig.width = 5.75, fig.height = 3.75, out.width = "65%"}
+so_t %>%
+  create_celltype_plots_2(
+    gn       = "Ifng",
+    bx_clmn  = "t_type",
+    grp_clmn = "treatment",
+    grp_lvls = treats,
+    u_clrs   = c("#FFFFFF", "#035B8F"),
+    bx_clrs  = t_clrs,
+    pt_size  = 1
+  )
+```
+
+---
+
+<br>
+
+<br>
+
+# Figure S2
+
+## S2A
+
+Heatmaps show expression of the top 10 marker genes for each macrophage subset.
+Genes are sorted by minimum fold change for the replicates.
+
+```{r "mac type heatmaps", fig.width = 5.2, fig.height = 6.3}
+so_mac %>%
+  create_marker_heatmap(
+    type_clmn  = "mac_type",
+    type_lvls  = names(mac_typ_cols),
+    sam_clmn   = "sample",
+    sam_lvls   = sam_lvls,
+    p_data     = mac_type_sig,
+    p_clmn     = "min_abs_fc",
+    strip_labs = mac_strip_labs,
+    n_gns      = 10
+  )
+```
+
+<br>
+
+## S2D
+
+Expression of select genes upregulated in CHIKV- vs mock-infected samples is
+shown below for macrophage subsets.
+
+```{r "mac chikv type boxplots", fig.width = 19, fig.height = 7.5}
+# Genes to plot
+gns <- c("Tnf", "Il1b", "Nlrp3", "H2-Eb1")
+
+u_clrs    <- grp_cols
+u_clrs[1] <- lighten("#009E73", 0.2)
+
+names(u_clrs) <- treats
+
+# Create plots for example genes
+# * exclude unassigned macrophages
+gn_boxes <- so_mac %>%
+  subset(mac_type != "unassigned") %>%
+  create_celltype_plots(
+    gns     = gns,
+    p_data  = mac_type_chikv_sig,
+    p_clmn  = "max_p_adj",
+    bx_labs = mac_x_labs
+  )
+
+ex_plts <- plot_grid(
+  plotlist = gn_boxes,
+  align = "v",
+  axis  = "rl",
+  nrow  = 2
+)
+
+ex_plts
+```
+
+---
+
+<br>
+
+<br>
+
+# Figure S3
+
+## S3A
 
 Heatmaps show expression of the top 15 genes
 upregulated in CHIKV- vs mock-infected samples for each T cell subset.
@@ -1500,7 +1524,7 @@ t_heats <- t_deg_typs %>%
         type_lvls     = names(t_strip_labs),
         sam_clmn      = "sample",
         sam_lvls      = sam_lvls,
-        p_data        = t_chikv_degs,
+        p_data        = t_chikv_degs, # consistent order is ensured using p_data
         p_clmn        = "p_val_adj",
         n_gns         = 15,
         inc_type      = t_deg_typs,
@@ -1555,20 +1579,22 @@ wrap_plots(
 
 <br>
 
-## 6D
+## S3B
 
-Ifng expression is shown below for each T cell subset.
+Heatmaps show expression of the top 10 marker genes for each T cell subset.
+Genes are sorted by minimum fold change for the replicates.
 
-```{r "t ifng", fig.width = 5.75, fig.height = 3.75, out.width = "65%"}
+```{r "t type heatmaps", fig.width = 7, fig.height = 9}
 so_t %>%
-  create_celltype_plots_2(
-    gn       = "Ifng",
-    bx_clmn  = "t_type",
-    grp_clmn = "treatment",
-    grp_lvls = treats,
-    u_clrs   = c("#FFFFFF", "#035B8F"),
-    bx_clrs  = t_clrs,
-    pt_size  = 1
+  create_marker_heatmap(
+    type_clmn  = "t_type",
+    type_lvls  = names(t_strip_labs),
+    sam_clmn   = "sample",
+    sam_lvls   = sam_lvls,
+    p_data     = t_type_sig,
+    p_clmn     = "min_abs_fc",
+    n_gns      = 10,
+    strip_labs = t_strip_labs
   )
 ```
 
@@ -1578,9 +1604,61 @@ so_t %>%
 
 <br>
 
-# Page 7
+# Fibroblast DEGs
 
-## 7A
+Heatmaps show expression of the top 30 genes
+upregulated in CHIKV- vs mock-infected samples for all macrophages and all
+fibroblasts.
+Mean expression is shown for each replicate, values are scaled separately for
+each cell type.
+Genes are arranged by the number of subsets upregulating the gene and
+the maximum fold change in expression for the replicates.
+Black diamonds mark the top 30 upregulated genes for each subset,
+grey diamonds mark other subsets where each gene is upregulated.
+
+```{r "fibroblast chikv type heatmaps", fig.width = 4.5, fig.height = 9, out.width = "50%"}
+# Set genes to plot
+# * exclude unassigned macrophages
+# * filter expr_dat after selecting genes to ensure diamonds are included for
+#   all cell types that significantly upregulate the gene
+typs <- c("Macrophages", "Fibroblasts")
+
+degs <- type_chikv_sig %>%
+  filter(direction == "up", cell_type %in% typs)
+
+lvls <- type_chikv_sig$cell_type %>%
+  table() %>%
+  sort(decreasing = TRUE) %>%
+  names()
+
+so %>%
+  subset(cell_type %in% typs) %>%
+  create_deg_heatmap(
+    type_clmn  = "cell_type",
+    type_lvls  = lvls,
+    n_top      = 30,
+    sam_clmn   = "sample",
+    sam_lvls   = sam_lvls,
+    p_data     = degs,
+    
+    p_clmn     = "max_abs_fc",
+    rev_sort   = TRUE,
+    strip_lab_fn = label_value,
+    
+    scale_groups = "cell_type"
+    
+    # strip_labs = mac_strip_labs,
+    # bold       = bold
+  )
+```
+
+---
+
+<br>
+
+<br>
+
+# T cell subset markers
 
 T cell marker genes are shown below for mock- and CHIKV-infected samples.
 
@@ -1614,33 +1692,6 @@ t_plts %>%
     ncol     = 3,
     align    = "vh",
     axis     = "trbl"
-  )
-```
-
----
-
-<br>
-
-<br>
-
-# Page 11
-
-## 11A
-
-Heatmaps show expression of the top 10 marker genes for each macrophage subset.
-Genes are sorted by minimum fold change for the replicates.
-
-```{r "t type heatmaps", fig.width = 7, fig.height = 9}
-so_t %>%
-  create_marker_heatmap(
-    type_clmn  = "t_type",
-    type_lvls  = names(t_strip_labs),
-    sam_clmn   = "sample",
-    sam_lvls   = sam_lvls,
-    p_data     = t_type_sig,
-    p_clmn     = "min_abs_fc",
-    n_gns      = 10,
-    strip_labs = t_strip_labs
   )
 ```
 
