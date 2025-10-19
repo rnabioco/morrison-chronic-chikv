@@ -1,3 +1,8 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
 
 ```{r "packages", include = FALSE}
 # Bioconductor
@@ -447,6 +452,94 @@ so <- so %>%
     resolution = rslns,
     dims       = 1:50
   )
+```
+
+```{r "TABULA MURIS TEST", eval = FALSE}
+so <- so %>%
+  mutate_meta(dplyr::select, -UMAP_1, -UMAP_2) %>%
+  clustify(
+    ref_mat = ref_tabula_muris_drop,
+    cluster_col = "RNA_snn_res.5",
+    rename_prefix = "tabula_muris"
+  )
+
+so %>%
+  plot_scatter(
+    "tabula_muris_type",
+    group_col = "treatment",
+    size = 0.001,
+    plot_colors = c(unassigned = "black")
+  ) +
+  umap_theme_2
+
+# Neutrophil markers
+# marks <- c(
+#   "Ly6g",
+#   # "Mpo",
+#   # "Elane",
+#   "Mmp8",
+#   "Csf3r",
+#   "S100a8",
+#   "S100a9",
+#   # "Fcgr3",
+#   # "Fcgr2b",
+#   "Cxcr2",
+#   "Ngp",
+#   "Lcn2",
+#   "Camp"
+# )
+
+marks <- c(
+  # B cells
+  "Cd79a", "Ms4a1",
+  # Dendritic cells
+  "Itgax", "Flt3",
+  # Endothelial cells
+  "Pecam1",
+  # "Cdh5",
+  # Fibroblasts
+  "Col1a1", "Pdgfra",
+  # Macrophages
+  "Adgre1", "Mrc1",
+  # Monocytes
+  "Ly6c2", "Ccr2",
+  # Neutrophils
+  "Ly6g", "Mmp8",
+  # NK cells
+  "Nkg7", "Klrb1c",
+  # Skeletal muscle
+  "Acta1", "Tnnt3",
+  # Stromal cells (double-negative)
+  # "Col1a2", "Dcn",
+  "Acta2",
+  # T cells
+  "Cd3e", "Trac"
+)
+
+
+# so %>%
+#   plot_scatter(
+#     "Cxcr2",
+#     group_col = "treatment",
+#     size = 0.001,
+#     plot_colors = c("lightblue", "red")
+#   ) +
+#   umap_theme_2
+
+marks %>%
+  map(~ {
+    so %>%
+      plot_violin(
+        .x,
+        cluster_col = "cell_type",
+        # group_col = "treatment",
+        method = "boxplot",
+        plot_colors = type_cols,
+        outlier.size = 0.1
+      )
+  }) %>%
+  plot_grid(plotlist = .)
+
 ```
 
 ```{r "clustify types", eval = create_so}
@@ -1303,15 +1396,14 @@ chikv_infctd <- so_df %>%
   pull(treatment)
 
 # Cell type colors
+# * save these colors
 type_cols <- unique(so_df$cell_type)
 type_cols <- set_names(ito_cols[seq_along(type_cols)], type_cols)
 
 type_cols["unassigned"] <- "#999999"
 
-subtype_cols <- c(colnames(ref_lec), colnames(ref_fib))
-subtype_cols <- set_names(ito_cols[seq_along(subtype_cols)], subtype_cols)
-subtype_cols["unassigned"] <- "#999999"
-subtype_cols["other"]      <- fade_0
+type_cols %>%
+  qsave(here(params$ref_dir, "celltype_colors.qs"))
 
 # CHIKV clusters colors
 grp_cols <- set_names(
@@ -1325,38 +1417,6 @@ grp_rep_cols <- grp_cols %>%
     str_c(.y, "-", 1:n_rep)
   )) %>%
   flatten_chr()
-
-# CHIKV cell type colors
-n_high <- so_df %>%
-  dplyr::filter(chikv_grp == chikv_grps[2]) %>%
-  nrow()
-
-chikv_type_cols <- unique(so_df$cell_type)
-chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% names(subtype_cols)]
-chikv_type_cols <- chikv_type_cols[!chikv_type_cols %in% c(lec_cell_types, fib_cell_types)]
-
-avail_cols <- ito_cols[!ito_cols %in% subtype_cols]
-
-chikv_type_cols <- set_names(
-  avail_cols[seq_along(chikv_type_cols)],
-  chikv_type_cols
-)
-
-chikv_type_cols <- c(subtype_cols, chikv_type_cols)
-
-chikv_type_cols[chikv_grps[1]] <- fade_2
-
-# Macrophage cluster colors
-mac_clst_cols <- so_mac@meta.data[[final_clsts$mac]] %>%
-  unique() %>%
-  as.numeric() %>%
-  sort() %>%
-  as.character()
-
-mac_clst_cols <- set_names(
-  ito_cols[seq_along(mac_clst_cols)],
-  mac_clst_cols
-)
 
 # UMAP themes
 mac_u_theme <- umap_theme +

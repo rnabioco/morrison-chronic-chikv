@@ -61,7 +61,7 @@ knitr::opts_chunk$set(
 
 options(future.globals.maxSize = 5.5 * 1024^3)
 
-knitr::knit(here::here("src/setup.Rmd"), output = "")
+knitr::knit(here::here("src/setup.qmd"), output = "")
 
 # Columns to exclude when saving DE tables
 exclude_clmns <- c(
@@ -1180,7 +1180,7 @@ grey diamonds mark other subsets where each gene is upregulated.
 ```{r "mac chikv type heatmaps", fig.width = 5.3, fig.height = 6, out.width = "75%"}
 # Select genes to bold
 # SHOULD CD74 BE INCLUDED IN THE TEXT??
-bold <- c(
+bold_genes <- c(
   "Ctss","Pld4","Clec4e","Ccl4","Tnfaip2","Tnf","Aip3","Slamf7","Aif1","Cxcl2","Il1b","Nlrp3",
   "Ccr5","Ccr2","Cx3cr1",
   "H2-DMb1","H2-Eb1","H2-Ab1","H2-Aa","H2-DMa",
@@ -1196,18 +1196,19 @@ degs <- mac_type_chikv_sig %>%
 
 so_mac %>%
   create_deg_heatmap(
-    type_clmn  = "mac_type",
-    type_lvls  = names(mac_typ_cols),
-    n_top      = 20,
-    sam_clmn   = "sample",
-    sam_lvls   = sam_lvls,
-    p_data     = degs,
+    type_clmn    = "mac_type",
+    type_lvls    = names(mac_typ_cols),
+    n_top        = 20,
+    sam_clmn     = "sample",
+    sam_lvls     = sam_lvls,
+    p_data       = degs,
     
-    p_clmn     = "max_p_adj",
-    rev_sort   = FALSE,
+    p_clmn       = "max_p_adj",
+    rev_sort     = FALSE,
     
-    strip_labs = mac_strip_labs,
-    bold       = bold
+    strip_labs   = mac_strip_labs,
+    bold         = bold_genes,
+    scale_groups = NULL
   )
 ```
 
@@ -1238,7 +1239,7 @@ so_mac %>%
     rev_sort   = TRUE,
     
     strip_labs = mac_strip_labs,
-    bold       = bold
+    bold       = bold_genes
   )
 ```
 
@@ -1610,13 +1611,13 @@ Heatmaps show expression of the top 30 genes
 upregulated in CHIKV- vs mock-infected samples for all macrophages and all
 fibroblasts.
 Mean expression is shown for each replicate, values are scaled separately for
-each cell type.
+fibroblasts (left) and scaled together for macrophages and fibroblasts (right).
 Genes are arranged by the number of subsets upregulating the gene and
 the maximum fold change in expression for the replicates.
 Black diamonds mark the top 30 upregulated genes for each subset,
 grey diamonds mark other subsets where each gene is upregulated.
 
-```{r "fibroblast chikv type heatmaps", fig.width = 4.5, fig.height = 9, out.width = "50%"}
+```{r "fibroblast chikv type heatmaps", fig.width = 10, fig.height = 9, out.width = "50%"}
 # Set genes to plot
 # * exclude unassigned macrophages
 # * filter expr_dat after selecting genes to ensure diamonds are included for
@@ -1631,25 +1632,51 @@ lvls <- type_chikv_sig$cell_type %>%
   sort(decreasing = TRUE) %>%
   names()
 
-so %>%
+# Plot macrophges and fibroblasts together
+mac_fib_heat <- so %>%
   subset(cell_type %in% typs) %>%
   create_deg_heatmap(
-    type_clmn  = "cell_type",
-    type_lvls  = lvls,
-    n_top      = 30,
-    sam_clmn   = "sample",
-    sam_lvls   = sam_lvls,
-    p_data     = degs,
+    type_clmn    = "cell_type",
+    type_lvls    = lvls,
+    n_top        = 30,
+    sam_clmn     = "sample",
+    sam_lvls     = sam_lvls,
+    p_data       = degs,
     
-    p_clmn     = "max_abs_fc",
-    rev_sort   = TRUE,
+    p_clmn       = "max_abs_fc",
+    rev_sort     = TRUE,
     strip_lab_fn = label_value,
+    bold         = bold_genes,
+    scale_groups = NULL
+  ) +
+  theme(aspect.ratio = 4)
+
+# Plot just fibroblasts
+fib_heat <- so %>%
+  subset(cell_type == "Fibroblasts") %>%
+  create_deg_heatmap(
+    type_clmn    = "cell_type",
+    type_lvls    = lvls,
+    n_top        = 30,
+    sam_clmn     = "sample",
+    sam_lvls     = sam_lvls,
+    p_data       = degs,  # genes plotted is determined by degs
     
-    scale_groups = "cell_type"
-    
-    # strip_labs = mac_strip_labs,
-    # bold       = bold
-  )
+    p_clmn       = "max_abs_fc",
+    rev_sort     = TRUE,
+    strip_lab_fn = label_value,
+    bold         = bold_genes,
+    scale_groups = NULL
+  ) +
+  theme(aspect.ratio = 4)
+
+# Create final figure
+wrap_plots(
+  fib_heat, mac_fib_heat,
+  nrow   = 1,
+  guides = "collect",
+  widths = c(0.5, 1)
+)
 ```
 
 ---
