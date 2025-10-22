@@ -25,6 +25,7 @@ library(furrr)
 
 # Plotting
 library(ggtrace)
+library(ggspruce)
 library(colorblindr)
 library(djvdj)
 library(scales)
@@ -1396,9 +1397,27 @@ chikv_infctd <- so_df %>%
   pull(treatment)
 
 # Cell type colors
+# * adjust based on cvd filter
 # * save these colors
 type_cols <- unique(so_df$cell_type)
 type_cols <- set_names(ito_cols[seq_along(type_cols)], type_cols)
+
+type_cols <- type_cols[names(type_cols) != "unassigned"]
+
+new_1 <- type_cols %>%
+  spruce_colors(
+    property   = "lightness",
+    filter     = "colorblind",
+    difference = 15
+  )
+
+type_cols <- new_1 <- set_names(new_1, names(type_cols))
+
+type_cols["Stromal cells (DN)"] <- new_1["Monocytes"]
+type_cols["Skeletal muscle"] <- new_1["DC"]
+type_cols["Monocytes"] <- new_1["B cells"]
+type_cols["B cells"] <- new_1["Skeletal muscle"]
+type_cols["DC"] <- new_1["Stromal cells (DN)"]
 
 type_cols["unassigned"] <- "#999999"
 
@@ -1509,7 +1528,7 @@ t_clrs <- set_names(
 t_clrs["unassigned"] <- "grey75"
 
 if (any(!names(t_clrs) %in% t_lvls)) {
-  stop("Correct mac_lvls, some labels are not included")
+  stop("Correct t_lvls, some labels are not included")
 }
 
 t_clrs <- t_clrs[t_lvls]

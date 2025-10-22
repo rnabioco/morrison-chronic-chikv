@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 <br>
