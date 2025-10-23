@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 <br>
@@ -956,14 +956,6 @@ create_subset_umap <- function(so_in, sub_clmn, clrs) {
   res
 }
 
-# # Adjust mac_type labels
-# so_mac <- so_mac %>%
-#   mutate_meta(
-#     mutate,
-#     mac_type = replace_na(mac_type, "unassigned"),
-#     mac_type = recode(mac_type, !!!mac_typ_labs)
-#   )
-
 # Create mac subset UMAPs
 u <- treats %>%
   map(~ {
@@ -1021,6 +1013,87 @@ plot_grid(
 #     legend.position = "none"
 #   )
 
+```
+
+<br>
+
+This is an alternate version with p values added for each macrophage subset.
+
+```{r "ALT VERSION WITH P VALUES", fig.width = 11.25, fig.height = 5.6}
+# Calculate p values using speckle
+prop_p <- propeller(
+  clusters = so_mac$mac_type,
+  sample   = so_mac$sample,
+  group    = so_mac$treatment
+)
+
+prop_p <- prop_p %>%
+  rowwise() %>%
+  mutate(
+    p_lab = .format_pvalue(FDR),
+    p_lab = str_c("italic(p)==", p_lab)
+  ) %>%
+  ungroup() %>%
+  rename(mac_type = BaselineProp.clusters) %>%
+  filter(mac_type != "unassigned") %>%
+  arrange(FDR)
+
+# Calculate cell proportions for plotting
+prop_dat <- so_mac@meta.data %>%
+  group_by(treatment, rep, sample) %>%
+  mutate(n = n()) %>%
+  group_by(mac_type, treatment, rep, sample, n) %>%
+  summarize(n_mac = n(), .groups = "drop") %>%
+  mutate(
+    prop_mac  = n_mac / n,
+    treatment = fct_relevel(treatment, treats)
+  ) %>%
+  arrange(treatment) %>%
+  mutate(
+    sample   = fct_inorder(sample),
+    mac_type = fct_relevel(mac_type, as.character(prop_p$mac_type))
+  )
+
+# Create bar graphs
+prop_bars <- prop_dat %>%
+  filter(mac_type != "unassigned") %>%
+  ggplot(aes(sample, prop_mac, fill = mac_type, color = mac_type, alpha = treatment)) +
+  geom_col(width = 0.8) +
+  
+  geom_text(
+    aes(3.5, Inf, label = p_lab, fill = NULL, color = NULL, alpha = NULL),
+    data = prop_p,
+    size = txt_pt2 / .pt,
+    vjust = 1.2,
+    parse = TRUE
+  ) +
+  
+  facet_wrap(
+    ~ mac_type,
+    scales = "free_x",
+    labeller = as_labeller(mac_strip_labs, default = label_parsed)
+  ) +
+  scale_fill_manual(values = mac_typ_cols_2) +
+  scale_color_manual(values = mac_typ_cols_2) +
+  scale_alpha_manual(values = c(0.25, 1)) +
+  scale_x_discrete(labels = simp_sam_labs) +
+  scale_y_continuous(expand = expansion(c(0.05, 0.15))) +
+  labs(y = "proportion of cells") +
+  base_theme +
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank(),
+    axis.text.x  = element_text(angle = 45, hjust = 1)
+  )
+
+# Create final figure
+plot_grid(
+  plotlist = append(u, list(prop_bars)),
+  nrow  = 1,
+  align = "vh",
+  axis  = "trbl",
+  rel_widths = c(1, 1, 0.8)
+)
 ```
 
 <br>

@@ -47,6 +47,7 @@ library(metap)
 library(edgeR)
 library(qs)
 library(hdf5r)
+library(speckle)
 
 source(here(params$template_dir, "funs.R"))
 ```

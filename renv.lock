@@ -4505,6 +4505,24 @@
       ],
       "Hash": "81d929f43f8532c1f8180a105449d414"
     },
+    "speckle": {
+      "Package": "speckle",
+      "Version": "1.2.0",
+      "Source": "Repository",
+      "Requirements": [
+        "R",
+        "Seurat",
+        "SingleCellExperiment",
+        "edgeR",
+        "ggplot2",
+        "grDevices",
+        "graphics",
+        "limma",
+        "methods",
+        "stats"
+      ],
+      "Hash": "56a255d58b213d295b5f45ec8d3b597a"
+    },
     "statmod": {
       "Package": "statmod",
       "Version": "1.5.0",
