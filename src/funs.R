@@ -3426,6 +3426,7 @@ create_treatment_vs_marker_fig <- function(so_in, treat, grp_clmn, rep_clmn = "r
 #' sorting based on `p_clmn`
 #' @param n_top Number of top genes to label on the plot
 #' @param include_genes Additional genes to include on plot
+#' @param summary_fn Function to summarize values, default is mean
 create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
                                sam_clmn = "sample", sam_lvls = NULL,
                                p_data, p_clmn = "max_p_adj", rev_sort = FALSE,
@@ -3435,7 +3436,8 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
                                include_genes = NULL,
                                strip_labs = waiver(),
                                strip_lab_fn = label_parsed, bold = NULL,
-                               scale_groups = NULL) {
+                               scale_groups = NULL,
+                               summary_fn = mean) {
   
   top_clrs <- c(
     "top" = "black",
@@ -3517,7 +3519,7 @@ create_deg_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
     
     pivot_longer(all_of(gns)) %>%
     group_by(!!sym(sam_clmn), !!sym(type_clmn), name) %>%
-    summarize(value = mean(value), .groups = "drop") %>%
+    summarize(value = summary_fn(value), .groups = "drop") %>%
     
     group_by(!!!syms(scale_grps)) %>%
     mutate(value = as.numeric(scale(value))) %>%
@@ -3605,7 +3607,8 @@ create_marker_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
                                   clrs = c("lightblue", "white", "#d7301f"),
                                   ex_type = "unassigned", inc_type = NULL,
                                   strip_labs = waiver(),
-                                  strip_lab_fn = label_parsed) {
+                                  strip_lab_fn = label_parsed,
+                                  summary_fn = mean) {
   
   # Set genes to plot
   # * exclude unassigned macrophages
@@ -3644,7 +3647,7 @@ create_marker_heatmap <- function(so_in, type_clmn, type_lvls = NULL,
     filter(!(!!sym(type_clmn) %in% ex_type)) %>%
     pivot_longer(all_of(names(gns))) %>%
     group_by(!!sym(sam_clmn), !!sym(type_clmn), name) %>%
-    summarize(value = mean(value), .groups = "drop") %>%
+    summarize(value = summary_fn(value), .groups = "drop") %>%
     group_by(name) %>%
     mutate(value = as.numeric(scale(value))) %>%
     ungroup() %>%
