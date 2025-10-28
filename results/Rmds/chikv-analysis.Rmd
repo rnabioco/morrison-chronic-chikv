@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 <br>
@@ -334,9 +334,12 @@ mac_chikv_sig %>%
 
 ```{r "mac chikv gsea"}
 # all macrophages mock vs CHIKV-infected DEGs
-# GSEA analysis using DOSE database
-# need to fetch entrez gene IDs for human homologs
-# exclude genes that have multiple human or mouse IDs
+# * genes are only included if they are expressed in at 10% of cells for all
+#   replicates of one of the conditions. This filtering is performed by default
+#   by FindMarkers
+# * GSEA analysis using DOSE database
+# * need to fetch entrez gene IDs for human homologs
+# * exclude genes that have multiple human or mouse IDs
 gsea_degs <- mac_chikv_degs %>%
   inner_join(hlogs, by = c(gene = "gene_mm")) %>%
   distinct(gene, gene_hs, entrez_hs, min_abs_fc) %>%
@@ -857,6 +860,91 @@ so %>%
 #         legend.position = "bottom"
 #       )
 #   })
+```
+
+<br>
+
+<br>
+
+## Cell type abundance
+
+To assess differences in cell type abundance between the mock- and
+CHIKV-infected samples,
+FDR-adjusted p values were calculated using the propeller method from the
+speckle R package.
+Moderated t tests were performed on logit-transformed, variance stabilized
+cell type proportions.
+
+```{r "CELL TYPE ABUNDANCE", fig.width = 8, fig.height = 8}
+## CLEAN THIS UP
+# Calculate p values using speckle
+prop_p <- propeller(
+  clusters = so$cell_type,
+  sample   = so$sample,
+  group    = so$treatment
+)
+
+prop_p <- prop_p %>%
+  rowwise() %>%
+  mutate(
+    p_lab = .format_pvalue(FDR),
+    p_lab = str_c("italic(p)==", p_lab)
+  ) %>%
+  ungroup() %>%
+  rename(cell_type = BaselineProp.clusters) %>%
+  filter(cell_type != "unassigned") %>%
+  arrange(FDR)
+
+# Calculate cell proportions for plotting
+prop_dat <- so@meta.data %>%
+  group_by(treatment, rep, sample) %>%
+  mutate(n = n()) %>%
+  group_by(cell_type, treatment, rep, sample, n) %>%
+  summarize(n_cells = n(), .groups = "drop") %>%
+  mutate(
+    prop_cells = n_cells / n,
+    treatment  = fct_relevel(treatment, treats)
+  ) %>%
+  arrange(treatment) %>%
+  mutate(
+    sample    = fct_inorder(sample),
+    cell_type = fct_relevel(cell_type, as.character(prop_p$cell_type))
+  )
+
+# Create bar graphs
+prop_bars <- prop_dat %>%
+  filter(cell_type != "unassigned") %>%
+  ggplot(aes(sample, prop_cells, fill = cell_type, color = cell_type, alpha = treatment)) +
+  geom_col(width = 0.8) +
+  
+  geom_text(
+    aes(3.5, Inf, label = p_lab, fill = NULL, color = NULL, alpha = NULL),
+    data = prop_p,
+    size = txt_pt2 / .pt,
+    vjust = 1.2,
+    parse = TRUE
+  ) +
+  
+  facet_wrap(
+    ~ cell_type,
+    scales = "free"
+    # labeller = as_labeller(mac_strip_labs, default = label_parsed)
+  ) +
+  scale_fill_manual(values = type_cols) +
+  scale_color_manual(values = type_cols) +
+  scale_alpha_manual(values = c(0.25, 1)) +
+  scale_x_discrete(labels = simp_sam_labs) +
+  scale_y_continuous(expand = expansion(c(0.05, 0.15))) +
+  labs(y = "proportion of cells") +
+  base_theme +
+  theme(
+    legend.position = "none",
+    strip.clip      = "off",
+    axis.title.x    = element_blank(),
+    axis.text.x     = element_text(angle = 45, hjust = 1)
+  )
+
+prop_bars
 ```
 
 ---
