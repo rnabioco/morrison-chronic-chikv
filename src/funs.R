@@ -2758,6 +2758,81 @@ create_celltype_plots_2 <- function(so_in, gn, x = "hUMAP_1", y = "hUMAP_2",
   res
 }
 
+#' Create bargraphs showing changes in cell type proportions for treatment
+#' groups
+create_prop_bars <- function(so_in, type_clmn, treatment_clmn = "treatment",
+                             prop_df, clrs, lvls = treats,
+                             strip_lab_fn = "label_value",
+                             facet_scales = "fixed", facet_nrow = NULL) {
+  
+  prop_df <- prop_df %>%
+    rowwise() %>%
+    mutate(
+      p_lab = .format_pvalue(FDR),
+      p_lab = str_c("italic(p)==", p_lab)
+    ) %>%
+    ungroup() %>%
+    rename(!!sym(type_clmn) := BaselineProp.clusters) %>%
+    arrange(FDR)
+  
+  # Calculate cell proportions for plotting
+  prop_dat <- so_in@meta.data %>%
+    group_by(!!sym(treatment_clmn), rep, sample) %>%
+    mutate(n = n()) %>%
+    group_by(!!sym(type_clmn), !!sym(treatment_clmn), rep, sample, n) %>%
+    summarize(n_cells = n(), .groups = "drop") %>%
+    mutate(
+      prop_cells = n_cells / n,
+      !!sym(treatment_clmn) := fct_relevel(!!sym(treatment_clmn), lvls)
+    ) %>%
+    arrange(!!sym(treatment_clmn)) %>%
+    mutate(
+      sample = fct_inorder(sample),
+      !!sym(type_clmn) := fct_relevel(!!sym(type_clmn), as.character(prop_df[[type_clmn]]))
+    )
+  
+  # Create bar graphs
+  res <- prop_dat %>%
+    filter(!!sym(type_clmn) %in% prop_df[[type_clmn]]) %>%
+    ggplot(aes(
+      sample, prop_cells,
+      fill  = !!sym(type_clmn),
+      color = !!sym(type_clmn),
+      alpha = !!sym(treatment_clmn)
+    )) +
+    geom_col(width = 0.8) +
+    
+    geom_text(
+      aes(3.5, Inf, label = p_lab, fill = NULL, color = NULL, alpha = NULL),
+      data = prop_df,
+      size = txt_pt2 / .pt,
+      vjust = 1.2,
+      parse = TRUE
+    ) +
+    
+    facet_wrap(
+      as.formula(str_c("~ ", type_clmn)),
+      scales   = facet_scales,
+      nrow     = facet_nrow,
+      labeller = strip_lab_fn
+    ) +
+    scale_fill_manual(values = clrs) +
+    scale_color_manual(values = clrs) +
+    scale_alpha_manual(values = c(0.25, 1)) +
+    scale_x_discrete(labels = simp_sam_labs) +
+    scale_y_continuous(expand = expansion(c(0.05, 0.15))) +
+    labs(y = "proportion of cells") +
+    base_theme +
+    theme(
+      legend.position = "none",
+      strip.clip      = "off",
+      axis.title.x    = element_blank(),
+      axis.text.x     = element_text(angle = 45, hjust = 1)
+    )
+  
+  res
+}
+
 
 # Marker figures ----
 

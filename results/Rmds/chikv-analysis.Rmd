@@ -45,7 +45,7 @@ params:
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 <br>
@@ -875,73 +875,22 @@ speckle R package.
 Moderated t tests were performed on logit-transformed, variance stabilized
 cell type proportions.
 
-```{r "CELL TYPE ABUNDANCE", fig.width = 8, fig.height = 8}
-## CLEAN THIS UP
+```{r "CELL TYPE ABUNDANCE", fig.width = 10, fig.height = 5}
 # Calculate p values using speckle
-prop_p <- propeller(
+celltype_prop <- propeller(
   clusters = so$cell_type,
   sample   = so$sample,
   group    = so$treatment
-)
+) %>%
+  filter(BaselineProp.clusters != "unassigned")
 
-prop_p <- prop_p %>%
-  rowwise() %>%
-  mutate(
-    p_lab = .format_pvalue(FDR),
-    p_lab = str_c("italic(p)==", p_lab)
-  ) %>%
-  ungroup() %>%
-  rename(cell_type = BaselineProp.clusters) %>%
-  filter(cell_type != "unassigned") %>%
-  arrange(FDR)
-
-# Calculate cell proportions for plotting
-prop_dat <- so@meta.data %>%
-  group_by(treatment, rep, sample) %>%
-  mutate(n = n()) %>%
-  group_by(cell_type, treatment, rep, sample, n) %>%
-  summarize(n_cells = n(), .groups = "drop") %>%
-  mutate(
-    prop_cells = n_cells / n,
-    treatment  = fct_relevel(treatment, treats)
-  ) %>%
-  arrange(treatment) %>%
-  mutate(
-    sample    = fct_inorder(sample),
-    cell_type = fct_relevel(cell_type, as.character(prop_p$cell_type))
-  )
-
-# Create bar graphs
-prop_bars <- prop_dat %>%
-  filter(cell_type != "unassigned") %>%
-  ggplot(aes(sample, prop_cells, fill = cell_type, color = cell_type, alpha = treatment)) +
-  geom_col(width = 0.8) +
-  
-  geom_text(
-    aes(3.5, Inf, label = p_lab, fill = NULL, color = NULL, alpha = NULL),
-    data = prop_p,
-    size = txt_pt2 / .pt,
-    vjust = 1.2,
-    parse = TRUE
-  ) +
-  
-  facet_wrap(
-    ~ cell_type,
-    scales = "free"
-    # labeller = as_labeller(mac_strip_labs, default = label_parsed)
-  ) +
-  scale_fill_manual(values = type_cols) +
-  scale_color_manual(values = type_cols) +
-  scale_alpha_manual(values = c(0.25, 1)) +
-  scale_x_discrete(labels = simp_sam_labs) +
-  scale_y_continuous(expand = expansion(c(0.05, 0.15))) +
-  labs(y = "proportion of cells") +
-  base_theme +
-  theme(
-    legend.position = "none",
-    strip.clip      = "off",
-    axis.title.x    = element_blank(),
-    axis.text.x     = element_text(angle = 45, hjust = 1)
+prop_bars <- so %>%
+  create_prop_bars(
+    type_clmn    = "cell_type",
+    prop_df      = celltype_prop,
+    clrs         = type_cols,
+    facet_scales = "free_y",
+    facet_nrow   = 2
   )
 
 prop_bars
@@ -1118,25 +1067,6 @@ top_gsea <- mac_chikv_gsea@result %>%
   mutate(Description = fct_inorder(Description)) %>%
   arrange(desc(Description)) %>%  # reverse axis order so top shown first
   mutate(Description = fct_inorder(Description))
-  
-
-# top_gsea %>%
-#   ggplot(aes(Description, -log10(p.adjust))) +
-#   geom_col(fill = "#6A51A3", alpha = 0.7) +
-#   labs(y = "-log10(p-value)") +
-#   scale_y_continuous(expand = expansion(c(0.02, 0.05))) +
-#   coord_flip() +
-#   djvdj_theme() +
-#   theme(
-#     aspect.ratio = 0.5,
-#     panel.border = element_blank(),
-#     axis.line.x  = element_line(size = 0.5, color = "grey85"),
-#     axis.ticks.y = element_blank(),
-#     axis.title.y = element_blank(),
-#     axis.text.y  = element_text(size = 20, hjust = 1, color = "black"),
-#     axis.text.x  = element_text(size = 16, hjust = 1, color = "black"),
-#     axis.title.x = element_text(size = 20)
-#   )
 ```
 
 ```{r "mac GSEA examples", fig.width = 5.75, fig.height = 6.5, out.width = "50%"}
@@ -1329,69 +1259,19 @@ cell type proportions.
 
 ```{r "ALT VERSION WITH P VALUES", fig.width = 11.25, fig.height = 5.6}
 # Calculate p values using speckle
-prop_p <- propeller(
+mac_prop <- propeller(
   clusters = so_mac$mac_type,
   sample   = so_mac$sample,
   group    = so_mac$treatment
-)
+) %>%
+  filter(BaselineProp.clusters != "unassigned")
 
-prop_p <- prop_p %>%
-  rowwise() %>%
-  mutate(
-    p_lab = .format_pvalue(FDR),
-    p_lab = str_c("italic(p)==", p_lab)
-  ) %>%
-  ungroup() %>%
-  rename(mac_type = BaselineProp.clusters) %>%
-  filter(mac_type != "unassigned") %>%
-  arrange(FDR)
-
-# Calculate cell proportions for plotting
-prop_dat <- so_mac@meta.data %>%
-  group_by(treatment, rep, sample) %>%
-  mutate(n = n()) %>%
-  group_by(mac_type, treatment, rep, sample, n) %>%
-  summarize(n_mac = n(), .groups = "drop") %>%
-  mutate(
-    prop_mac  = n_mac / n,
-    treatment = fct_relevel(treatment, treats)
-  ) %>%
-  arrange(treatment) %>%
-  mutate(
-    sample   = fct_inorder(sample),
-    mac_type = fct_relevel(mac_type, as.character(prop_p$mac_type))
-  )
-
-# Create bar graphs
-prop_bars <- prop_dat %>%
-  filter(mac_type != "unassigned") %>%
-  ggplot(aes(sample, prop_mac, fill = mac_type, color = mac_type, alpha = treatment)) +
-  geom_col(width = 0.8) +
-  
-  geom_text(
-    aes(3.5, Inf, label = p_lab, fill = NULL, color = NULL, alpha = NULL),
-    data = prop_p,
-    size = txt_pt2 / .pt,
-    vjust = 1.2,
-    parse = TRUE
-  ) +
-  
-  facet_wrap(
-    ~ mac_type,
-    scales = "free_x",
-    labeller = as_labeller(mac_strip_labs, default = label_parsed)
-  ) +
-  scale_fill_manual(values = mac_typ_cols_2) +
-  scale_color_manual(values = mac_typ_cols_2) +
-  scale_alpha_manual(values = c(0.25, 1)) +
-  scale_x_discrete(labels = simp_sam_labs) +
-  scale_y_continuous(expand = expansion(c(0.05, 0.15))) +
-  labs(y = "proportion of macrophages") +
-  base_theme +
-  theme(
-    legend.position = "none",
-    axis.title.x = element_blank(),
-    axis.text.x  = element_text(angle = 45, hjust = 1)
+prop_bars <- so_mac %>%
+  create_prop_bars(
+    type_clmn    = "mac_type",
+    prop_df      = mac_prop,
+    clrs         = mac_typ_cols_2,
+    facet_scales = "free_x"
   )
 
 # Create final figure
@@ -1819,6 +1699,10 @@ so_mac %>%
 
 Expression of select genes upregulated in CHIKV- vs mock-infected samples is
 shown below for macrophage subsets.
+P values were calculated using the wilcoxon rank sum test with
+Benjamini-Hochberg correction.
+P values are shown for genes that are significantly upregulated for
+CHIKV-infected mice.
 
 ```{r "mac chikv type boxplots", fig.width = 19, fig.height = 7.5}
 # Genes to plot
