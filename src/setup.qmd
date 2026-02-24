@@ -20,7 +20,7 @@ library(broom)
 library(here)
 library(cowplot)
 library(knitr)
-library(xlsx)
+# library(xlsx)
 library(furrr)
 
 # Plotting
@@ -63,7 +63,7 @@ opts_chunk$set(
 # Adjust directory paths based on user input
 dirs <- c(
   "so_dir", "enr_dir", "unenr_dir",
-  "table_dir", "ref_dir", "geo_dir", "metrics"
+  "table_dir", "ref_dir", "geo_dir", "fig_dir", "metrics"
 )
 
 dirs <- dirs %>%

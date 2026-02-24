@@ -2,7 +2,7 @@
 title:  "CHIKV 28dpi scRNA-seq"
 author: "Ryan Sheridan"
 date:   "`r Sys.Date()`"
-output: 
+output:
   html_document:
     toc:       true
     toc_float: true
@@ -10,13 +10,13 @@ output:
     theme:     cosmo
     highlight: kate
 params:
-  
   unenr_dir:    "results/2021-11-05"      # Directory for unenriched data
   enr_dir:      "results/2022-02-03"      # Directory for CHIKV-enriched data
   template_dir: "src"                     # Directory for Rmd templates
   ref_dir:      "ref"
   table_dir:    "results/tables/2024-03-29"          # Directory to write tables
   geo_dir:      "results/geo"             # Directory for GEO submission
+  fig_dir:      "results/figures"         # Directory for saving figures
   overwrite:    false                     # Should tables be overwritten if they already exist?
   so_dir:       "~/Dropbox/Ryan/Projects/morrison-chronic-chikv/results/sobjs/2024-01-22_4" # Directory for Seurat objects
   metrics:     "count_metrics.csv"       # Cell Ranger metrics
@@ -44,8 +44,6 @@ params:
     - "C2"
     - "C3"
   treatment_levels: ["mock", "CHIKV"]  # order as control, treatment, order affects how marker genes are identified
-editor_options: 
-  chunk_output_type: console
 ---
 
 <br>
@@ -64,18 +62,46 @@ editor_options:
 
 ---
 
+```{r "LOAD PARAMS INTERACTIVELY", eval = FALSE}
+# This is needed to correctly load params into environment when using Positron
+collapse_list <- function(x) {
+  # If it's a list with only one element that is also a list, collapse it
+  while (is.list(x) && length(x) == 1 && is.list(x[[1]])) {
+    x <- x[[1]]
+  }
+  
+  # Recursively apply to all elements if still a list
+  if (is.list(x)) {
+    x <- lapply(x, collapse_list)
+  }
+  
+  x
+}
+
+# Extract current file path
+rmd <- rstudioapi::getSourceEditorContext()$path
+
+# Extract params from YAML
+params <- rmarkdown::yaml_front_matter(rmd)$params
+params <- collapse_list(params)
+```
+
 ```{r "setup", include = FALSE}
 # Default chunk options
 knitr::opts_chunk$set(
   message = FALSE,
   warning = FALSE,
   echo    = FALSE,
-  dpi     = 300
+  dpi     = 600
 )
 
 options(future.globals.maxSize = 5.5 * 1024^3)
 
 knitr::knit(here::here("src/setup.qmd"), output = "")
+
+# Create figure output directory
+fig_dir <- dirs$fig_dir
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Columns to exclude when saving DE tables
 exclude_clmns <- c(
@@ -758,6 +784,11 @@ plts %>%
     cat("\n\n###", .y, "\n\n")
     print(.x)
     cat("\n\n<br>\n\n<br>\n\n")
+
+    ggsave(
+      here(fig_dir, str_c("cell_type_markers_", .y, ".pdf")),
+      .x, width = 15, height = 15
+    )
   })
 ```
 
@@ -894,6 +925,11 @@ prop_bars <- so %>%
   )
 
 prop_bars
+
+ggsave(
+  here(fig_dir, "cell_type_abundance.pdf"),
+  prop_bars, width = 10, height = 5
+)
 ```
 
 ---
@@ -974,11 +1010,18 @@ u3 <- so@meta.data %>%
   )
 
 # Create final figure
-plot_grid(
+p <- plot_grid(
   u1, u2, u3,
   nrow = 1,
   align = "h",
   axis  = "tb"
+)
+
+p
+
+ggsave(
+  here(fig_dir, "fig1CD_2A_cell_type_UMAPs.pdf"),
+  p, width = 18, height = 5
 )
 ```
 
@@ -987,7 +1030,7 @@ plot_grid(
 The fraction of cells identified for each cell type is shown below.
 
 ```{r "cell type bargraphs", fig.width = 5, fig.height = 4, out.width = "50%"}
-so@meta.data %>%
+p <- so@meta.data %>%
   mutate(
     cell_type = fct_infreq(cell_type),
     treatment = fct_relevel(treatment, treats)
@@ -1011,6 +1054,13 @@ so@meta.data %>%
     axis.text.y  = element_text(size = txt_pt2),
     axis.ticks.x = element_blank()
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig1CD_cell_type_bargraphs.pdf"),
+  p, width = 5, height = 4
+)
 ```
 
 <br>
@@ -1021,7 +1071,7 @@ The number of differentially expressed genes identified for mock vs CHIKV is
 shown below for each cell type.
 
 ```{r "DEGs bargraph", fig.width = 5, fig.height = 3, out.width = "40%"}
-type_chikv_sig %>%
+p <- type_chikv_sig %>%
   mutate(
     cell_type = fct_infreq(cell_type),
     direction = fct_relevel(direction, c("up", "down"))
@@ -1044,6 +1094,13 @@ type_chikv_sig %>%
     axis.title.x         = element_blank(),
     axis.text.x          = element_text(angle = 45, hjust = 1)
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig1E_DEGs_bargraph.pdf"),
+  p, width = 5, height = 3
+)
 ```
 
 <br>
@@ -1073,15 +1130,15 @@ top_gsea <- mac_chikv_gsea@result %>%
 # Plot example terms
 gsea_terms <- set_names(top_gsea$ID, top_gsea$Description)
 
-gsea_terms %>%
+p <- gsea_terms %>%
   rev() %>%
   imap(~ {
-    p <- top_gsea %>%
+    p_lab <- top_gsea %>%
       filter(ID == .x) %>%
       pull(p.adjust) %>%
       .format_pvalue() %>%
       str_c("italic(p) == ", .)
-    
+
     mac_chikv_gsea %>%
       gseaplot(
         .x,
@@ -1089,7 +1146,7 @@ gsea_terms %>%
         color.line = "#0072B2"
       ) +
       geom_text(
-        aes(x, y, label = p),
+        aes(x, y, label = p_lab),
         data  = ~ summarize(.x, x = max(x), y = max(runningScore)),
         parse = TRUE,
         vjust = 1,
@@ -1110,6 +1167,13 @@ gsea_terms %>%
     plotlist = .,
     nrow = 3
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig1F_mac_GSEA_examples.pdf"),
+  p, width = 5.75, height = 6.5
+)
 ```
 
 ---
@@ -1136,7 +1200,7 @@ lgnd_labs <- dat %>%
 
 lgnd_labs <- set_names(lgnd_labs$lab, lgnd_labs$cell_type)
 
-dat %>%
+p <- dat %>%
   ggplot(aes(rep, fill = cell_type)) +
   geom_bar(position = "fill") +
   scale_fill_manual(values = type_cols, labels = lgnd_labs) +
@@ -1155,6 +1219,13 @@ dat %>%
     axis.text.y  = element_text(size = txt_pt2),
     axis.ticks.x = element_blank()
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig2A_CHIKV_type_bargraphs.pdf"),
+  p, width = 5, height = 4
+)
 ```
 
 <br>
@@ -1225,12 +1296,19 @@ br <- so_mac@meta.data %>%
   )
 
 # Create final figure
-plot_grid(
+p <- plot_grid(
   plotlist = append(u, list(br)),
   nrow  = 1,
   align = "vh",
   axis  = "trbl",
   rel_widths = c(1, 1, 0.7)
+)
+
+p
+
+ggsave(
+  here(fig_dir, "fig2CD_mac_subset_plots.pdf"),
+  p, width = 11.25, height = 5.6
 )
 
 # Boxplots showing module score for assigned subsets
@@ -1275,12 +1353,19 @@ prop_bars <- so_mac %>%
   )
 
 # Create final figure
-plot_grid(
+p <- plot_grid(
   plotlist = append(u, list(prop_bars)),
   nrow  = 1,
   align = "vh",
   axis  = "trbl",
   rel_widths = c(1, 1, 0.8)
+)
+
+p
+
+ggsave(
+  here(fig_dir, "fig2CD_mac_subset_plots_pvalues.pdf"),
+  p, width = 11.25, height = 5.6
 )
 ```
 
@@ -1358,12 +1443,19 @@ br <- u_dat %>%
   )
 
 # Create final figure
-plot_grid(
+p <- plot_grid(
   u1, u2, br,
   nrow  = 1,
   align = "h",
   axis  = "tb",
   rel_widths = c(1, 1, 0.7)
+)
+
+p
+
+ggsave(
+  here(fig_dir, "fig2E_CHIKV_clusters.pdf"),
+  p, width = 10, height = 4.5
 )
 ```
 
@@ -1394,9 +1486,9 @@ dat <- so_mac@meta.data %>%
   )
 
 # Create bargraphs
-dat %>%
+p <- dat %>%
   filter(mac_type != "unassigned") %>%
-  
+
   ggplot(aes(mac_type, frac_high, fill = mac_type, color = mac_type)) +
   geom_col(position = position_dodge2(), alpha = 0.95) +
   geom_text(
@@ -1419,6 +1511,13 @@ dat %>%
     legend.position = "none",
     axis.title.x = element_blank()
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig2F_CHIKV_mac_bargraphs.pdf"),
+  p, width = 5, height = 3
+)
 ```
 
 ---
@@ -1455,7 +1554,7 @@ bold_genes <- c(
 degs <- mac_type_chikv_sig %>%
   filter(direction == "up")
 
-so_mac %>%
+p <- so_mac %>%
   create_deg_heatmap(
     type_clmn    = "mac_type",
     type_lvls    = names(mac_typ_cols),
@@ -1463,14 +1562,21 @@ so_mac %>%
     sam_clmn     = "sample",
     sam_lvls     = sam_lvls,
     p_data       = degs,
-    
+
     p_clmn       = "max_p_adj",
     rev_sort     = FALSE,
-    
+
     strip_labs   = mac_strip_labs,
     bold         = bold_genes,
     scale_groups = NULL
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig3A_mac_chikv_type_heatmaps.pdf"),
+  p, width = 5.3, height = 6
+)
 ```
 
 <br>
@@ -1487,7 +1593,7 @@ This modified version includes Il1b and Tnf.
 degs <- mac_type_chikv_sig %>%
   filter(direction == "up")
 
-so_mac %>%
+p <- so_mac %>%
   create_deg_heatmap(
     type_clmn  = "mac_type",
     type_lvls  = names(mac_typ_cols),
@@ -1495,13 +1601,20 @@ so_mac %>%
     sam_clmn   = "sample",
     sam_lvls   = sam_lvls,
     p_data     = degs,
-    
+
     p_clmn     = "max_abs_fc",
     rev_sort   = TRUE,
-    
+
     strip_labs = mac_strip_labs,
     bold       = bold_genes
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig3A_mac_chikv_type_heatmaps_alt.pdf"),
+  p, width = 5.5, height = 9
+)
 ```
 
 ---
@@ -1552,7 +1665,7 @@ clrs[c("CD4 Teff", "other T cells")] <- type_cols["T cells"]
 
 clrs <- clrs[as.character(unique(lvls$new_type))]
 
-ifng_dat %>%
+p <- ifng_dat %>%
   subset(treatment == "CHIKV") %>%
   create_celltype_plots_2(
     gn       = "Ifng",
@@ -1567,6 +1680,13 @@ ifng_dat %>%
     out_size = 0.1,
     pt_size  = 0.1
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig4A_cell_type_ifng.pdf"),
+  p, width = 4, height = 4.7
+)
 ```
 
 <br>
@@ -1638,12 +1758,19 @@ br <- so_t@meta.data %>%
   )
 
 # Create final figure
-plot_grid(
+p <- plot_grid(
   plotlist = append(u, list(br)),
   nrow  = 1,
   align = "vh",
   axis  = "trbl",
   rel_widths = c(1, 1, 0.7)
+)
+
+p
+
+ggsave(
+  here(fig_dir, "fig4B_t_subset_plots.pdf"),
+  p, width = 9, height = 5.6
 )
 ```
 
@@ -1654,7 +1781,7 @@ plot_grid(
 Ifng expression is shown below for each T cell subset.
 
 ```{r "t ifng", fig.width = 5.75, fig.height = 3.75, out.width = "65%"}
-so_t %>%
+p <- so_t %>%
   create_celltype_plots_2(
     gn       = "Ifng",
     bx_clmn  = "t_type",
@@ -1664,6 +1791,13 @@ so_t %>%
     bx_clrs  = t_clrs,
     pt_size  = 1
   )
+
+p
+
+ggsave(
+  here(fig_dir, "fig4C_t_ifng.pdf"),
+  p, width = 5.75, height = 3.75
+)
 ```
 
 ---
@@ -1680,7 +1814,7 @@ Heatmaps show expression of the top 10 marker genes for each macrophage subset.
 Genes are sorted by minimum fold change for the replicates.
 
 ```{r "mac type heatmaps", fig.width = 5.2, fig.height = 6.3}
-so_mac %>%
+p <- so_mac %>%
   create_marker_heatmap(
     type_clmn  = "mac_type",
     type_lvls  = names(mac_typ_cols),
@@ -1691,6 +1825,13 @@ so_mac %>%
     strip_labs = mac_strip_labs,
     n_gns      = 10
   )
+
+p
+
+ggsave(
+  here(fig_dir, "figS2A_mac_type_heatmaps.pdf"),
+  p, width = 5.2, height = 6.3
+)
 ```
 
 <br>
@@ -1732,6 +1873,11 @@ ex_plts <- plot_grid(
 )
 
 ex_plts
+
+ggsave(
+  here(fig_dir, "figS2D_mac_chikv_type_boxplots.pdf"),
+  ex_plts, width = 19, height = 7.5
+)
 ```
 
 ---
@@ -1836,10 +1982,17 @@ t_heats <- t_heats %>%
     legend.text          = element_text(hjust = c(0, 1), vjust = 3)
   )
 
-wrap_plots(
+p <- wrap_plots(
   t_heats, lgnd,
   nrow = 1,
   widths = c(1, 0.2)
+)
+
+p
+
+ggsave(
+  here(fig_dir, "figS3A_t_chikv_type_heatmaps.pdf"),
+  p, width = 6.5, height = 6.75
 )
 ```
 
@@ -1851,7 +2004,7 @@ Heatmaps show expression of the top 10 marker genes for each T cell subset.
 Genes are sorted by minimum fold change for the replicates.
 
 ```{r "t type heatmaps", fig.width = 7, fig.height = 9}
-so_t %>%
+p <- so_t %>%
   create_marker_heatmap(
     type_clmn  = "t_type",
     type_lvls  = names(t_strip_labs),
@@ -1862,6 +2015,13 @@ so_t %>%
     n_gns      = 10,
     strip_labs = t_strip_labs
   )
+
+p
+
+ggsave(
+  here(fig_dir, "figS3B_t_type_heatmaps.pdf"),
+  p, width = 7, height = 9
+)
 ```
 
 ---
@@ -1936,11 +2096,18 @@ fib_heat <- so %>%
   theme(aspect.ratio = 4)
 
 # Create final figure
-wrap_plots(
+p <- wrap_plots(
   fib_heat, mac_fib_heat,
   nrow   = 1,
   guides = "collect",
   widths = c(0.5, 1)
+)
+
+p
+
+ggsave(
+  here(fig_dir, "fibroblast_chikv_type_heatmaps.pdf"),
+  p, width = 10, height = 9
 )
 ```
 
@@ -1978,13 +2145,20 @@ t_plts <- key_gns %>%
   })
 
 # Create final figure
-t_plts %>%
+p <- t_plts %>%
   plot_grid(
     plotlist = .,
     ncol     = 3,
     align    = "vh",
     axis     = "trbl"
   )
+
+p
+
+ggsave(
+  here(fig_dir, "t_markers.pdf"),
+  p, width = 20, height = 20
+)
 ```
 
 ---
