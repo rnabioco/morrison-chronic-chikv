@@ -2692,7 +2692,8 @@ create_celltype_plots_2 <- function(so_in, gn, x = "hUMAP_1", y = "hUMAP_2",
                                     grp_lvls = NULL, pt_size = 1,
                                     u_clrs = c("lightblue", "white", "#D7301F"),
                                     bx_clrs, ttl = NULL, rel_h = c(1, 0.55),
-                                    out_size = 0.5
+                                    out_size = 0.5,
+                                    bx_linewidth = 0.5
                                     ) {
 
   u <- so_in %>%
@@ -2731,7 +2732,8 @@ create_celltype_plots_2 <- function(so_in, gn, x = "hUMAP_1", y = "hUMAP_2",
       plot_lvls    = names(bx_clrs),
       color        = "black",
       alpha        = 1,
-      width        = 0.6
+      width        = 0.6,
+      linewidth    = bx_linewidth
     ) +
     
     base_theme +
@@ -2747,14 +2749,9 @@ create_celltype_plots_2 <- function(so_in, gn, x = "hUMAP_1", y = "hUMAP_2",
     )
   
   # Create final figure
-  res <- plot_grid(
-    u, bx,
-    ncol  = 1,
-    align = "v",
-    axis  = "rl",
-    rel_heights = rel_h
-  )
-  
+  res <- (u / bx) +
+    plot_layout(heights = rel_h)
+
   res
 }
 

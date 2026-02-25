@@ -951,13 +951,16 @@ u1 <- so %>%
   plot_scatter(
     "sample",
     "UMAP_1", "UMAP_2",
-    size = 0.001,
+    size = 0.0007,
     plot_colors = sam_cols,
     plot_lvls   = rev(sam_lvls)
   ) +
   umap_theme +
+  labs(x = "UMAP 1", y = "UMAP 2") +
   theme(
-    panel.border = element_rect(color = ln_col, linewidth = ln_pt),
+    axis.line.x  = element_line(color = "black"),
+    axis.line.y  = element_line(color = "black"),
+    axis.title   = element_text(size = txt_pt2),
     legend.title = element_blank()
   )
 
@@ -966,12 +969,15 @@ u2 <- so %>%
   plot_scatter(
     "cell_type",
     "UMAP_1", "UMAP_2",
-    size = 0.001,
+    size = 0.0007,
     plot_colors = type_cols
   ) +
   umap_theme +
+  labs(x = "UMAP 1", y = "UMAP 2") +
   theme(
-    panel.border = element_rect(color = ln_col, linewidth = ln_pt),
+    axis.line.x  = element_line(color = "black"),
+    axis.line.y  = element_line(color = "black"),
+    axis.title   = element_text(size = txt_pt2),
     legend.title = element_blank()
   )
   
@@ -994,18 +1000,21 @@ u3 <- so@meta.data %>%
     trace_position = "bottom",
     fill = "white",
     stroke = 0.7,
-    size = 0.5
+    size = 0.35
   ) +
   geom_point(
     aes(color = cell_type),
     data = ~ filter(.x, chikv_grp == chikv_grps[2]),
-    size = 1
+    size = 0.7
   ) +
   guides(color = guide_legend(override.aes = list(size = 3))) +
   scale_color_manual(values = type_cols, labels = u_labs) +
   umap_theme +
+  labs(x = "UMAP 1", y = "UMAP 2") +
   theme(
-    panel.border = element_rect(color = ln_col, linewidth = ln_pt),
+    axis.line.x  = element_line(color = "black"),
+    axis.line.y  = element_line(color = "black"),
+    axis.title   = element_text(size = txt_pt2),
     legend.title = element_blank()
   )
 
@@ -1246,18 +1255,22 @@ create_subset_umap <- function(so_in, sub_clmn, clrs) {
       x = "hUMAP_1",
       y = "hUMAP_2",
       plot_lvls = names(clrs),
-      size = 0.7
+      size = 0.49
     ) +
     scale_color_manual(values = clrs, labels = sub_labs) +
     guides(color = guide_legend(
       ncol = 1, override.aes = list(size = 3), reverse = TRUE)
     ) +
     int_u_theme +
+    labs(x = "UMAP 1", y = "UMAP 2") +
     theme(
-      plot.title  = element_text(hjust = 0.5, size = 20),
-      legend.text = element_text(size = 14)
+      axis.line.x  = element_line(color = "black"),
+      axis.line.y  = element_line(color = "black"),
+      axis.title   = element_text(size = txt_pt2),
+      plot.title   = element_text(hjust = 0.5, size = 20),
+      legend.text  = element_text(size = 14)
     )
-  
+
   res
 }
 
@@ -1393,21 +1406,24 @@ u1 <- u_dat %>%
   geom_point_trace(
     trace_position = "bottom",
     fill = "white",
-    size = 1.5
+    size = 1.05
   ) +
   geom_point(
     aes(color = mac_type),
     data = ~ filter(.x, chikv_grp == chikv_grps[2]),
-    size = 2
+    size = 1.4
   ) +
   scale_color_manual(values = mac_typ_cols_2) +
   guides(color = guide_legend(nrow = 3)) +
   umap_theme +
+  labs(x = "UMAP 1", y = "UMAP 2") +
   theme(
+    axis.line.x     = element_line(color = "black"),
+    axis.line.y     = element_line(color = "black"),
+    axis.title      = element_text(size = txt_pt2),
     legend.position = "bottom",
     legend.title    = element_blank(),
-    legend.text     = element_text(size = 12),
-    panel.border    = element_rect(color = ln_col, linewidth = ln_pt)
+    legend.text     = element_text(size = 12)
   )
 
 # Create UMAP showing CHIKV-high clusters
@@ -1415,15 +1431,19 @@ u2 <- u_dat %>%
   plot_scatter(
     "chikv_clst_grp",
     "hUMAP_1", "hUMAP_2",
-    size        = 1,
+    size        = 0.7,
     plot_colors = chikv_clst_grp_clrs,
     n_label     = "legend"
   ) +
   umap_theme +
+  labs(x = "UMAP 1", y = "UMAP 2") +
   theme(
+    axis.line.x     = element_line(color = "black"),
+    axis.line.y     = element_line(color = "black"),
+    axis.title      = element_text(size = txt_pt2),
     legend.position = "bottom",
     legend.title    = element_blank(),
-    legend.text     = element_text(size = 12),
+    legend.text     = element_text(size = 12)
   )
 
 # Bargraph showing CHIKV-low/high clusters
@@ -1675,10 +1695,11 @@ p <- ifng_dat %>%
     grp_clmn = "treatment",
     grp_lvls = treats,
     u_clrs   = c("#FFFFFF", "#035B8F"),
-    bx_clrs  = t_clrs,
-    rel_h    = c(1, 0.7),
-    out_size = 0.1,
-    pt_size  = 0.1
+    bx_clrs      = t_clrs,
+    rel_h        = c(1, 0.35),
+    out_size     = 0.05,
+    pt_size      = 0.07,
+    bx_linewidth = 0.25
   )
 
 p
@@ -1707,7 +1728,7 @@ create_subset_umap <- function(so_in, sub_clmn, clrs) {
       x = "hUMAP_1",
       y = "hUMAP_2",
       plot_lvls = names(clrs),
-      size = 1.3
+      size = 0.91
     ) +
     scale_color_manual(values = clrs, labels = sub_labs) +
     guides(color = guide_legend(
@@ -1783,13 +1804,16 @@ Ifng expression is shown below for each T cell subset.
 ```{r "t ifng", fig.width = 5.75, fig.height = 3.75, out.width = "65%"}
 p <- so_t %>%
   create_celltype_plots_2(
-    gn       = "Ifng",
-    bx_clmn  = "t_type",
-    grp_clmn = "treatment",
-    grp_lvls = treats,
-    u_clrs   = c("#FFFFFF", "#035B8F"),
-    bx_clrs  = t_clrs,
-    pt_size  = 1
+    gn           = "Ifng",
+    bx_clmn      = "t_type",
+    grp_clmn     = "treatment",
+    grp_lvls     = treats,
+    u_clrs       = c("#FFFFFF", "#035B8F"),
+    bx_clrs      = t_clrs,
+    rel_h        = c(1, 0.35),
+    pt_size      = 0.7,
+    out_size     = 0.25,
+    bx_linewidth = 0.25
   )
 
 p
@@ -2140,6 +2164,7 @@ t_plts <- key_gns %>%
       grp_lvls = treats,
       pt_size  = 1,
       bx_clrs  = t_clrs,
+      rel_h    = c(1, 0.35),
       ttl      = .x
     )
   })
