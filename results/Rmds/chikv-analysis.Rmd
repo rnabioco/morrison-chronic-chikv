@@ -62,7 +62,7 @@ params:
 
 ---
 
-```{r "LOAD PARAMS INTERACTIVELY", eval = FALSE}
+```{r "LOAD PARAMS INTERACTIVELY", eval = FALSE, include = FALSE}
 # This is needed to correctly load params into environment when using Positron
 collapse_list <- function(x) {
   # If it's a list with only one element that is also a list, collapse it
@@ -945,41 +945,41 @@ ggsave(
 UMAP projections show sample groups (left), cell type annotations (middle),
 and CHIKV+ cells (right).
 
-```{r "cell type UMAPs", fig.height = 5, fig.width = 18}
+```{r "cell type UMAPs", fig.height = 4.5, fig.width = 18}
+u_thm <- umap_theme +
+  theme(
+    axis.line.x  = element_line(color = "black", linewidth = 0.5),
+    axis.line.y  = element_line(color = "black", linewidth = 0.5),
+    axis.title   = element_text(size = txt_pt2 * 1.2),
+    legend.title = element_blank()
+  )
+
+n_pt <- txt_pt2 * 1.5
+
 # UMAP showing samples
 u1 <- so %>%
   plot_scatter(
     "sample",
     "UMAP_1", "UMAP_2",
-    size = 0.0007,
+    size = 0.00049,
     plot_colors = sam_cols,
-    plot_lvls   = rev(sam_lvls)
+    plot_lvls   = rev(sam_lvls),
+    label_params = list(size = n_pt)
   ) +
-  umap_theme +
-  labs(x = "UMAP 1", y = "UMAP 2") +
-  theme(
-    axis.line.x  = element_line(color = "black"),
-    axis.line.y  = element_line(color = "black"),
-    axis.title   = element_text(size = txt_pt2),
-    legend.title = element_blank()
-  )
+  u_thm +
+  labs(x = "UMAP 1", y = "UMAP 2")
 
 # UMAP showing cell types
 u2 <- so %>%
   plot_scatter(
     "cell_type",
     "UMAP_1", "UMAP_2",
-    size = 0.0007,
-    plot_colors = type_cols
+    size = 0.00049,
+    plot_colors = type_cols,
+    label_params = list(size = n_pt)
   ) +
-  umap_theme +
-  labs(x = "UMAP 1", y = "UMAP 2") +
-  theme(
-    axis.line.x  = element_line(color = "black"),
-    axis.line.y  = element_line(color = "black"),
-    axis.title   = element_text(size = txt_pt2),
-    legend.title = element_blank()
-  )
+  u_thm +
+  labs(x = "UMAP 1", y = "UMAP 2")
   
 # UMAP showing CHIKV+ cells
 u_labs <- so@meta.data %>%
@@ -999,24 +999,18 @@ u3 <- so@meta.data %>%
   geom_point_trace(
     trace_position = "bottom",
     fill = "white",
-    stroke = 0.7,
-    size = 0.35
+    stroke = 1.2,
+    size = 0.245
   ) +
   geom_point(
     aes(color = cell_type),
     data = ~ filter(.x, chikv_grp == chikv_grps[2]),
-    size = 0.7
+    size = 0.49
   ) +
   guides(color = guide_legend(override.aes = list(size = 3))) +
   scale_color_manual(values = type_cols, labels = u_labs) +
-  umap_theme +
-  labs(x = "UMAP 1", y = "UMAP 2") +
-  theme(
-    axis.line.x  = element_line(color = "black"),
-    axis.line.y  = element_line(color = "black"),
-    axis.title   = element_text(size = txt_pt2),
-    legend.title = element_blank()
-  )
+  u_thm +
+  labs(x = "UMAP 1", y = "UMAP 2")
 
 # Create final figure
 p <- plot_grid(
@@ -1030,7 +1024,7 @@ p
 
 ggsave(
   here(fig_dir, "fig1CD_2A_cell_type_UMAPs.pdf"),
-  p, width = 18, height = 5
+  p, width = 22, height = 7
 )
 ```
 
@@ -1255,7 +1249,7 @@ create_subset_umap <- function(so_in, sub_clmn, clrs) {
       x = "hUMAP_1",
       y = "hUMAP_2",
       plot_lvls = names(clrs),
-      size = 0.49
+      size = 0.15
     ) +
     scale_color_manual(values = clrs, labels = sub_labs) +
     guides(color = guide_legend(
@@ -1406,15 +1400,15 @@ u1 <- u_dat %>%
   geom_point_trace(
     trace_position = "bottom",
     fill = "white",
-    size = 1.05
+    size = 0.735
   ) +
   geom_point(
     aes(color = mac_type),
     data = ~ filter(.x, chikv_grp == chikv_grps[2]),
-    size = 1.4
+    size = 0.5
   ) +
   scale_color_manual(values = mac_typ_cols_2) +
-  guides(color = guide_legend(nrow = 3)) +
+  guides(color = guide_legend(nrow = 3, override.aes = list(size = 3))) +
   umap_theme +
   labs(x = "UMAP 1", y = "UMAP 2") +
   theme(
@@ -1431,16 +1425,13 @@ u2 <- u_dat %>%
   plot_scatter(
     "chikv_clst_grp",
     "hUMAP_1", "hUMAP_2",
-    size        = 0.7,
+    size        = 0.49,
     plot_colors = chikv_clst_grp_clrs,
     n_label     = "legend"
   ) +
   umap_theme +
   labs(x = "UMAP 1", y = "UMAP 2") +
   theme(
-    axis.line.x     = element_line(color = "black"),
-    axis.line.y     = element_line(color = "black"),
-    axis.title      = element_text(size = txt_pt2),
     legend.position = "bottom",
     legend.title    = element_blank(),
     legend.text     = element_text(size = 12)
@@ -1697,9 +1688,9 @@ p <- ifng_dat %>%
     u_clrs   = c("#FFFFFF", "#035B8F"),
     bx_clrs      = t_clrs,
     rel_h        = c(1, 0.35),
-    out_size     = 0.05,
+    out_size     = 0.25,
     pt_size      = 0.07,
-    bx_linewidth = 0.25
+    bx_linewidth = 0.4
   )
 
 p
@@ -1728,7 +1719,7 @@ create_subset_umap <- function(so_in, sub_clmn, clrs) {
       x = "hUMAP_1",
       y = "hUMAP_2",
       plot_lvls = names(clrs),
-      size = 0.91
+      size = 0.637
     ) +
     scale_color_manual(values = clrs, labels = sub_labs) +
     guides(color = guide_legend(
@@ -1753,7 +1744,7 @@ u <- treats %>%
       ggtitle(.x)
   })
 
-# Create mac subset bargraphs
+# Create subset bargraphs
 br <- so_t@meta.data %>%
   mutate(
     treatment = fct_relevel(treatment, treats),
@@ -1811,9 +1802,9 @@ p <- so_t %>%
     u_clrs       = c("#FFFFFF", "#035B8F"),
     bx_clrs      = t_clrs,
     rel_h        = c(1, 0.35),
-    pt_size      = 0.7,
+    pt_size      = 0.49,
     out_size     = 0.25,
-    bx_linewidth = 0.25
+    bx_linewidth = 0.4
   )
 
 p
